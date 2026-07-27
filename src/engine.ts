@@ -223,8 +223,10 @@ export class Engine {
     const key = `${pool.protocol}:${pool.address}`;
     const cached = this.stabilityCache.get(key);
     if (cached && Date.now() - cached.at < 60_000) return cached.metrics;
+    // 20 minutes of 5m candles: the drift/stability gate must reflect the
+    // holding horizon, not the last hour (config: maxNetDrift15mPct).
     const nowSec = Math.floor(Date.now() / 1000);
-    const candles = await apiFor(pool.protocol).getOhlcv(pool.address, "5m", nowSec - 3_600, nowSec);
+    const candles = await apiFor(pool.protocol).getOhlcv(pool.address, "5m", nowSec - 1_200, nowSec);
     const metrics = computeStability(candles, 5);
     this.stabilityCache.set(key, { at: Date.now(), metrics });
     return metrics;
