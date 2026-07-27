@@ -2,7 +2,8 @@
 
 Bot autonome de **fee-farming opportuniste** sur Meteora (DLMM + DAMM v2) :
 détecter les pools qui impriment des fees de façon anormale, entrer en SPOT
-serré autour du prix actif, récolter, sortir avant que l'IL ne mange les gains.
+serré autour du prix actif, récolter, sortir sur take-profit (+6 %) ou
+stop-loss (−6 %) avant que l'IL ne mange les gains.
 
 ## Vue d'ensemble
 
@@ -39,8 +40,8 @@ serré autour du prix actif, récolter, sortir avant que l'IL ne mange les gains
 
 ## Signal haute fréquence (cœur du bot)
 
-Le bucket le plus court des data APIs est 30m — trop lent pour une détention
-cible de 10 minutes. Le bot construit donc son propre signal :
+Le bucket le plus court des data APIs est 30m — bien trop lent pour timer une
+entrée sur un pic de fees. Le bot construit donc son propre signal :
 
 1. **Broad scan** (90 s) : pages triées `sort_by=fee_tvl_ratio_30m:desc` et
    `volume_30m:desc` sur les deux APIs → pré-filtres (TVL bornée, blacklist,
@@ -60,7 +61,7 @@ sont ignorés pour ne jamais produire de taux négatif.
 
 ```
 share          = size / (TVL × inRangeTvlFraction + size)     (auto-dilution)
-expectedFees   = instant_fee_rate × horizon(10min) × share
+expectedFees   = instant_fee_rate × horizon_projection(10min) × share
 expectedIL     = IL(range ±w, move attendu = vol_réalisée × √horizon)
 fixedCosts     = open + close + slippage aller-retour
 expectedNet    = expectedFees − expectedIL − fixedCosts
@@ -77,10 +78,10 @@ drift 15min ≤ 12 %, RugCheck OK, limites portefeuille OK.
 |---|--------------|-----------------------------------------------------------------|
 | 0 | KILL_SWITCH  | erreurs API/RPC répétées ou commande manuelle `close-all`        |
 | 1 | OUT_OF_RANGE | prix hors du range → sortie immédiate                            |
-| 2 | STOP_IL      | valeur (tokens + fees) < entrée − 4 %                            |
-| 3 | TAKE_PROFIT  | fees nettes ≥ 5 % de la taille                                   |
+| 2 | STOP_IL      | stop-loss : valeur (tokens + fees) < entrée − 6 %                |
+| 3 | TAKE_PROFIT  | fees nettes ≥ 6 % de la taille                                   |
 | 4 | FEE_DECAY    | fees/min < 35 % du taux d'entrée pendant ≥ 45 s                  |
-| 5 | TIMEOUT      | 10 min de détention → sortie inconditionnelle                    |
+| 5 | TIMEOUT      | optionnel, désactivé par défaut (`maxHoldMs: null`) — les sorties sont pilotées par TP/SL |
 
 Boucle de monitoring : 10 s. Claim périodique : 60 s + claim final à la clôture.
 

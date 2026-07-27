@@ -78,7 +78,7 @@ describe("evaluateOpportunity", () => {
     const inRange = ev.sample.pool.tvl * config.scoring.inRangeTvlFraction;
     const share = ev.positionSizeUsd / (inRange + ev.positionSizeUsd);
     expect(ev.expectedFeesUsd).toBeCloseTo(
-      ev.sample.instantFeeRateUsdPerMin * (config.position.maxHoldMs / 60_000) * share,
+      ev.sample.instantFeeRateUsdPerMin * config.position.projectionHorizonMinutes * share,
       6,
     );
   });

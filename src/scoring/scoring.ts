@@ -2,13 +2,12 @@ import { config } from "../config/config.js";
 import type { HeatSample } from "../scanner/scanner.js";
 import { expectedIlUsd } from "../pnl/il.js";
 import { expectedMoveFraction, type StabilityMetrics } from "./volatility.js";
-import { minutes } from "../utils/time.js";
 
 /**
  * Composite opportunity scoring + ex-ante profitability projection.
  *
  * The score ranks candidates; the projection (expected fees vs expected IL vs
- * fixed costs on the max-hold horizon) gates the actual entry. Both are
+ * fixed costs over the projection horizon) gates the actual entry. Both are
  * persisted for every evaluation so parameters can be calibrated offline.
  */
 
@@ -35,12 +34,12 @@ export interface OpportunityEvaluation {
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
-/** Choose the SPOT half-width: wide enough for expected 10-min move, clamped. */
+/** Choose the SPOT half-width: wide enough for the projection-horizon move, clamped. */
 export function chooseRange(sample: HeatSample, stability: StabilityMetrics): {
   rangeHalfWidth: number;
   binRange: number;
 } {
-  const horizonMin = minutes(config.position.maxHoldMs);
+  const horizonMin = config.position.projectionHorizonMinutes;
   const move = expectedMoveFraction(stability, horizonMin) * config.position.rangeVolMultiplier;
   const binStep = sample.pool.binStep ?? 20; // DAMM v2: virtual bins of 0.2% for width math
   const binWidth = binStep / 10_000;
@@ -94,7 +93,7 @@ export function evaluateOpportunity(
   // --- projection --------------------------------------------------------
   const { rangeHalfWidth, binRange } = chooseRange(sample, stability);
   const positionSizeUsd = choosePositionSize(capitalUsd, openExposureUsd);
-  const horizonMin = minutes(config.position.maxHoldMs);
+  const horizonMin = config.position.projectionHorizonMinutes;
 
   // Fee share model with self-dilution: our share of in-range liquidity.
   const inRangeTvl = pool.tvl * s.inRangeTvlFraction;

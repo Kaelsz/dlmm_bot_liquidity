@@ -84,8 +84,9 @@ export function evaluateExit(s: PositionMonitorState): ExitDecision {
     };
   }
 
-  // 5. Timeout — unconditional.
-  if (s.nowMs - s.openedAtMs >= config.position.maxHoldMs) {
+  // 5. Optional timeout — disabled when maxHoldMs is null (TP/SL-driven exits).
+  const maxHold = config.position.maxHoldMs;
+  if (maxHold !== null && s.nowMs - s.openedAtMs >= maxHold) {
     return { exit: true, reason: "TIMEOUT", detail: `held ${Math.round((s.nowMs - s.openedAtMs) / 60_000)}min` };
   }
 

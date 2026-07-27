@@ -63,9 +63,11 @@ describe("exit rules", () => {
     expect(late.reason).toBe("FEE_DECAY");
   });
 
-  it("times out unconditionally at max hold", () => {
-    const d = evaluateExit({ ...base(), openedAtMs: Date.now() - config.position.maxHoldMs - 1 });
-    expect(d.reason).toBe("TIMEOUT");
+  it("has no time-based exit when maxHoldMs is null (TP/SL-driven)", () => {
+    expect(config.position.maxHoldMs).toBeNull();
+    // A healthy position held for hours stays open.
+    const d = evaluateExit({ ...base(), openedAtMs: Date.now() - 5 * 3_600_000 });
+    expect(d.exit).toBe(false);
   });
 });
 

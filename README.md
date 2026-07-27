@@ -4,8 +4,9 @@ Bot autonome de **fee-farming opportuniste** sur Solana : il scanne en continu
 les pools Meteora **DLMM** et **DAMM v2**, détecte celles qui génèrent un volume
 de fees anormalement élevé par rapport à leur TVL (à la minute près, via les
 deltas de fees cumulées), ouvre une position **SPOT serrée** autour du prix
-actif pour capter un maximum de fees, puis sort selon des règles strictes
-(fee decay, out-of-range, stop IL, take profit, timeout 10 min).
+actif pour capter un maximum de fees, puis sort selon des règles strictes :
+**take-profit +6 %**, **stop-loss −6 %**, fee decay, out-of-range (timeout
+optionnel, désactivé par défaut).
 
 Ce n'est **pas** un bot directionnel : il gagne si
 `fees captées > IL + coûts de tx + slippage`.

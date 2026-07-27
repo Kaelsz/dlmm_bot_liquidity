@@ -206,9 +206,19 @@ export const config = {
      * translated into bins with the pool's bin_step. Clamped to [min,max].
      */
     rangeVolMultiplier: 1.5,
-    /** Max holding time — unconditional exit (ms). */
-    maxHoldMs: 10 * 60_000,
-    /** Monitoring loop period for open positions (ms). Must be << maxHoldMs. */
+    /**
+     * Optional max holding time (ms). null = no time-based exit: the position
+     * stays open until take-profit, stop-loss, out-of-range or fee decay
+     * triggers. Set a number (e.g. 10 * 60_000) to restore a hard timeout.
+     */
+    maxHoldMs: null as number | null,
+    /**
+     * Horizon (minutes) used by the ex-ante projection and range sizing.
+     * Decoupled from maxHoldMs so projections stay bounded even without a
+     * time-based exit.
+     */
+    projectionHorizonMinutes: 10,
+    /** Monitoring loop period for open positions (ms). */
     monitorIntervalMs: 10_000,
     /** Claim fees at this interval while in position (ms). */
     claimIntervalMs: 60_000,
@@ -220,10 +230,10 @@ export const config = {
       feeDecayGraceMs: 45_000,
       /** Out of range: price beyond position bounds (or > drift bins) => immediate exit. */
       maxBinsDrift: 12,
-      /** Stop on position value drawdown (fees included), fraction of size. */
-      stopIlFraction: 0.04,
-      /** Take profit: net fees earned as a fraction of size => exit and recycle. */
-      takeProfitFraction: 0.05,
+      /** Stop-loss: total position value (tokens + fees) below entry − 6% => exit. */
+      stopIlFraction: 0.06,
+      /** Take profit: +6% of position size in net fees => exit and recycle. */
+      takeProfitFraction: 0.06,
     },
 
     /** Fixed cost model used by projections and paper PnL (USD). */
