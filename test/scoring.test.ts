@@ -67,6 +67,23 @@ describe("evaluateOpportunity", () => {
     expect(ev.enter).toBe(false);
   });
 
+  it("rejects non-persistent bursts", () => {
+    const ev = evaluateOpportunity(heatSample({ consecutiveHotSamples: 1 }), stableMetrics(), capital, 0);
+    expect(ev.enter).toBe(false);
+    expect(ev.rejectReason).toContain("not persistent");
+  });
+
+  it("rejects entries past the burst peak", () => {
+    const ev = evaluateOpportunity(
+      heatSample({ instantFeeRateUsdPerMin: 60, peakRateUsdPerMin: 300 }),
+      stableMetrics(),
+      capital,
+      0,
+    );
+    expect(ev.enter).toBe(false);
+    expect(ev.rejectReason).toContain("past peak");
+  });
+
   it("rejects when too few fast samples exist", () => {
     const ev = evaluateOpportunity(heatSample({ sampleCount: 2 }), stableMetrics(), capital, 0);
     expect(ev.enter).toBe(false);

@@ -118,6 +118,10 @@ export function evaluateOpportunity(
     rejectReason = `fee rate $${sample.instantFeeRateUsdPerMin.toFixed(1)}/min < ${s.minInstantFeeRateUsdPerMin}`;
   else if (sample.feeAcceleration < s.minFeeAcceleration)
     rejectReason = `fees decelerating (${sample.feeAcceleration.toFixed(2)}/min²)`;
+  else if (sample.consecutiveHotSamples < s.minConsecutiveHotSamples)
+    rejectReason = `burst not persistent (${sample.consecutiveHotSamples}/${s.minConsecutiveHotSamples} hot samples)`;
+  else if (sample.instantFeeRateUsdPerMin < sample.peakRateUsdPerMin * s.minRateVsPeakFraction)
+    rejectReason = `past peak (rate $${sample.instantFeeRateUsdPerMin.toFixed(0)}/min < ${(s.minRateVsPeakFraction * 100).toFixed(0)}% of peak $${sample.peakRateUsdPerMin.toFixed(0)}/min)`;
   else if (stability.netDriftPct > s.maxNetDrift15mPct)
     rejectReason = `trending ${stability.netDriftPct.toFixed(1)}% > ${s.maxNetDrift15mPct}%`;
   else if (stability.volumePerPctDrift < s.minVolumePerPctDrift)

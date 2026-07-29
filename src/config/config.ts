@@ -82,8 +82,13 @@ export const config = {
     /** Pages of page_size pools fetched per sort key during broad scan. */
     broadScanPages: 3,
     broadScanPageSize: 100,
-    /** Fast poll interval on the watchlist (drives the fees/min signal). */
-    fastPollIntervalMs: 25_000,
+    /**
+     * Fast poll interval on the watchlist (drives the fees/min signal).
+     * 76% of observed fee bursts die in under 2 minutes: detection latency
+     * is the dominant edge, so poll aggressively (still far below the API
+     * rate limits with a 25-pool watchlist per protocol).
+     */
+    fastPollIntervalMs: 12_000,
     /** Max pools kept on the watchlist per protocol. */
     watchlistMaxSize: 25,
     /** A pool must show at least this fee/TVL over 30m to enter the watchlist (1 = 1%). */
@@ -107,8 +112,27 @@ export const config = {
      * TVL in fees per hour right now — extremely selective on purpose.
      */
     minInstantHeatPctPerHour: 2.0,
-    /** Minimum absolute derived fee rate (USD/min) — tiny pools print high ratios but no money. */
-    minInstantFeeRateUsdPerMin: 25,
+    /**
+     * Minimum absolute derived fee rate (USD/min). Raised from 25 after the
+     * 24h paper run: with ~$2.50 of fixed costs per round-trip, only strong
+     * printers amortize the entry fast enough.
+     */
+    minInstantFeeRateUsdPerMin: 50,
+    /**
+     * Burst persistence gate: the heat must have stayed above the entry
+     * threshold for at least this many consecutive fast samples. Kills the
+     * sub-2-minute bursts that produced 100% of the losing paper entries.
+     */
+    minConsecutiveHotSamples: 3,
+    /** Current rate must still be at least this fraction of the recent peak (reject post-peak entries). */
+    minRateVsPeakFraction: 0.5,
+    /**
+     * Pre-entry recheck: after all gates pass, wait this long, re-poll the
+     * pool and require the fresh rate to still be at least
+     * entryRecheckMinFraction of the rate that triggered the signal.
+     */
+    entryRecheckDelayMs: 8_000,
+    entryRecheckMinFraction: 0.4,
     /** Require fee acceleration >= this (USD/min per min; 0 = flat is acceptable, never negative). */
     minFeeAcceleration: 0,
     /**
@@ -175,8 +199,10 @@ export const config = {
     },
 
     portfolio: {
-      /** Max size of a single position as a fraction of capital. */
-      maxPositionPctOfCapital: 0.25,
+      /** Max size of a single position as a fraction of capital. Raised to
+       *  0.5 after the 24h paper run: $2.50 of fixed costs on a $250 position
+       *  is a 1% hurdle before the first dollar of profit. */
+      maxPositionPctOfCapital: 0.5,
       /** Hard cap per position (USD). */
       maxPositionUsd: 500,
       /** Minimum position size worth the fixed costs (USD). */

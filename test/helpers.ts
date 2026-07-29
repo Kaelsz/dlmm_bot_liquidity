@@ -61,5 +61,7 @@ export const heatSample = (overrides: Partial<HeatSample> = {}): HeatSample => (
   instantHeatPctPerHour: 24,
   feeAcceleration: 1,
   sampleCount: 5,
+  consecutiveHotSamples: 5,
+  peakRateUsdPerMin: 220,
   ...overrides,
 });

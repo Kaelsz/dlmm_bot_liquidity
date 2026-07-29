@@ -1,6 +1,6 @@
 import { config } from "./config/config.js";
 import { logger } from "./utils/logger.js";
-import { fmtPct, fmtUsd } from "./utils/time.js";
+import { fmtPct, fmtUsd, sleep } from "./utils/time.js";
 import { BotDb } from "./db/database.js";
 import { Scanner, type HeatSample } from "./scanner/scanner.js";
 import { apiFor } from "./scanner/datapi.js";
@@ -198,9 +198,40 @@ export class Engine {
         this.persistOpportunity(ev, "SKIP", `portfolio: ${limits.reason}`);
         continue;
       }
+      // Pre-entry recheck: most bursts die within seconds of detection. Wait
+      // a beat, re-poll the pool and confirm fees are still flowing before
+      // committing capital.
+      const recheck = await this.recheckEntry(ev);
+      if (!recheck.ok) {
+        this.persistOpportunity(ev, "SKIP", recheck.reason);
+        logger.info({ pool: pool.name, reason: recheck.reason }, "entry recheck failed");
+        continue;
+      }
       this.persistOpportunity(ev, "ENTER", null);
       await this.manager.openFromEvaluation(ev);
     }
+  }
+
+  /**
+   * Fresh confirmation poll just before opening: sleep long enough for the
+   * cumulative fee counter to move, re-derive the rate, and require it to
+   * hold at least entryRecheckMinFraction of the signal rate.
+   */
+  private async recheckEntry(ev: OpportunityEvaluation): Promise<{ ok: boolean; reason: string }> {
+    const pool = ev.sample.pool;
+    await sleep(config.scoring.entryRecheckDelayMs);
+    const fresh = await apiFor(pool.protocol).getPool(pool.address);
+    if (!fresh) return { ok: false, reason: "recheck: pool unavailable" };
+    const freshSample = this.scanner.recordFeePoint(fresh);
+    if (!freshSample) return { ok: false, reason: "recheck: stale cumulative fees" };
+    const floor = ev.sample.instantFeeRateUsdPerMin * config.scoring.entryRecheckMinFraction;
+    if (freshSample.instantFeeRateUsdPerMin < floor) {
+      return {
+        ok: false,
+        reason: `recheck: rate collapsed $${freshSample.instantFeeRateUsdPerMin.toFixed(0)}/min < $${floor.toFixed(0)}/min`,
+      };
+    }
+    return { ok: true, reason: "ok" };
   }
 
   private async evaluate(sample: HeatSample): Promise<OpportunityEvaluation | null> {

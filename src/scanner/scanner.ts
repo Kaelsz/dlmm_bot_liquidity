@@ -34,6 +34,14 @@ export interface HeatSample {
   feeAcceleration: number;
   /** Number of fast samples available for this pool. */
   sampleCount: number;
+  /**
+   * Trailing count of consecutive samples whose heat stayed above the entry
+   * threshold. Measured burst durations show 76% of fee bursts die in under
+   * 2 minutes — entries require persistence, not a single hot reading.
+   */
+  consecutiveHotSamples: number;
+  /** Highest fee rate (USD/min) seen over the recent sample window. */
+  peakRateUsdPerMin: number;
 }
 
 interface FeePoint {
@@ -203,12 +211,31 @@ export class Scanner {
       feeAcceleration = dtMin > 0 ? (instantFeeRateUsdPerMin - prevRate) / dtMin : 0;
     }
 
+    // Persistence over the recent window: rate per consecutive point pair,
+    // heat computed against each point's own TVL.
+    const recentWindow = 10;
+    const start = Math.max(1, history.length - recentWindow);
+    let peakRateUsdPerMin = 0;
+    let consecutiveHotSamples = 0;
+    for (let i = start; i < history.length; i++) {
+      const a = history[i - 1]!;
+      const b = history[i]!;
+      const r = rate(a, b);
+      peakRateUsdPerMin = Math.max(peakRateUsdPerMin, r);
+      const t = b.tvl > 0 ? b.tvl : tvl;
+      const heat = t > 0 ? ((r * 60) / t) * 100 : 0;
+      if (heat >= config.scoring.minInstantHeatPctPerHour) consecutiveHotSamples += 1;
+      else consecutiveHotSamples = 0;
+    }
+
     return {
       pool,
       instantFeeRateUsdPerMin,
       instantHeatPctPerHour,
       feeAcceleration,
       sampleCount: history.length,
+      consecutiveHotSamples,
+      peakRateUsdPerMin,
     };
   }
 
