@@ -2,6 +2,7 @@ import { config } from "./config/config.js";
 import { logger } from "./utils/logger.js";
 import { fmtPct, fmtUsd, sleep } from "./utils/time.js";
 import { BotDb } from "./db/database.js";
+import { StateBackup } from "./db/backup.js";
 import { Scanner, type HeatSample } from "./scanner/scanner.js";
 import { apiFor } from "./scanner/datapi.js";
 import { computeStability, type StabilityMetrics } from "./scoring/volatility.js";
@@ -67,6 +68,7 @@ export class Engine {
   readonly db: BotDb;
   readonly scanner: Scanner;
   readonly notifier = new Notifier();
+  private readonly backup: StateBackup;
   private readonly rugcheck: RugcheckClient;
   readonly manager: PositionManager | null;
   private readonly feedCache = new Map<string, { at: number; snap: MarketSnapshot }>();
@@ -79,6 +81,7 @@ export class Engine {
     this.db = new BotDb(dbPath);
     this.scanner = new Scanner(this.db);
     this.rugcheck = new RugcheckClient(this.db);
+    this.backup = new StateBackup(this.db);
 
     if (mode === "scan") {
       this.manager = null;
@@ -129,12 +132,17 @@ export class Engine {
     this.every(config.scanner.fastPollIntervalMs, () => this.fastCycle());
     if (this.manager) {
       this.every(config.position.monitorIntervalMs, () => this.monitorCycle());
+      // Self-backup: the container can be rolled back to an older snapshot at
+      // any time, and an external scheduler does not fire while it sleeps.
+      this.every(config.backup.intervalMs, () => this.backup.push());
     }
   }
 
   stop(): void {
     this.running = false;
     for (const t of this.timers) clearInterval(t);
+    // Flush the state file before closing so an ordered shutdown keeps the tail.
+    if (this.manager) this.backup.export();
     this.db.close();
   }
 

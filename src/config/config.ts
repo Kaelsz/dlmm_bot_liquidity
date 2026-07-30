@@ -276,6 +276,20 @@ export const config = {
     capitalUsd: env.CAPITAL_USD,
   },
 
+  backup: {
+    /**
+     * The bot commits its own state to git on this interval. The remote
+     * environment restores containers from snapshots, so git is the only
+     * storage that survives a rollback — and an external scheduler cannot be
+     * relied on because it does not fire while the container is asleep.
+     */
+    intervalMs: 10 * 60_000,
+    exportPath: "data/state-export.json",
+    branch: "claude/best-bot-possible-cykt67",
+    /** Opportunities newer than this are included in the export. */
+    opportunityWindowMs: 48 * 3_600_000,
+  },
+
   notifier: {
     discordWebhookUrl: env.DISCORD_WEBHOOK_URL,
     telegramBotToken: env.TELEGRAM_BOT_TOKEN,
