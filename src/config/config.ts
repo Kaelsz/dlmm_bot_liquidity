@@ -282,8 +282,10 @@ export const config = {
      * environment restores containers from snapshots, so git is the only
      * storage that survives a rollback — and an external scheduler cannot be
      * relied on because it does not fire while the container is asleep.
+     * Observed rollback period is under 30 minutes, so this is the bound on
+     * how much of a run can be lost: keep it well below that.
      */
-    intervalMs: 10 * 60_000,
+    intervalMs: 5 * 60_000,
     exportPath: "data/state-export.json",
     branch: "claude/best-bot-possible-cykt67",
     /** Opportunities newer than this are included in the export. */
