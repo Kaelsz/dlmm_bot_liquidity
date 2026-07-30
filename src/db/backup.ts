@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
 import { config } from "../config/config.js";
@@ -7,6 +7,25 @@ import { logger } from "../utils/logger.js";
 import type { BotDb } from "../db/database.js";
 
 const run = promisify(execFile);
+
+type Row = Record<string, unknown>;
+
+/**
+ * Merge previously exported rows with the current ones, keyed by a natural
+ * key rather than the SQLite rowid: after a snapshot rollback the database
+ * goes back in time and re-issues ids, so an id-keyed merge would silently
+ * drop or alias rows. Current rows win on conflict.
+ */
+function merge(previous: Row[], current: Row[], key: (row: Row) => string): Row[] {
+  const byKey = new Map<string, Row>();
+  for (const row of previous) byKey.set(key(row), row);
+  for (const row of current) byKey.set(key(row), row);
+  return [...byKey.values()];
+}
+
+function asRows(value: unknown): Row[] {
+  return Array.isArray(value) ? (value as Row[]) : [];
+}
 
 /**
  * Durable off-container state backup.
@@ -29,18 +48,54 @@ export class StateBackup {
     private readonly branch = config.backup.branch,
   ) {}
 
+  /** Read whatever is already on disk, so a rolled-back DB cannot shrink it. */
+  private previous(): Record<string, unknown> {
+    if (!existsSync(this.filePath)) return {};
+    try {
+      return JSON.parse(readFileSync(this.filePath, "utf8")) as Record<string, unknown>;
+    } catch (err) {
+      logger.warn({ err }, "previous state export unreadable, starting fresh");
+      return {};
+    }
+  }
+
   /** Write the JSON export. Always safe to call; never throws. */
   export(): boolean {
     try {
       const sinceMs = Date.now() - config.backup.opportunityWindowMs;
+      const prev = this.previous();
+      // Positions carry their pnl inline: after a rollback the position ids are
+      // reused, so a separate pnl array keyed by position_id would mis-join.
+      const positions = this.db.db
+        .prepare(
+          `SELECT p.*, n.fees_claimed_usd, n.il_usd, n.tx_costs_usd, n.slippage_usd,
+                  n.net_pnl_usd, n.holding_minutes
+             FROM positions p LEFT JOIN pnl n ON n.position_id = p.id
+            ORDER BY p.opened_at`,
+        )
+        .all() as Row[];
+      const events = this.db.db.prepare("SELECT * FROM position_events ORDER BY ts").all() as Row[];
+      const opportunities = this.db.db
+        .prepare("SELECT * FROM opportunities WHERE ts >= ? ORDER BY ts")
+        .all(sinceMs) as Row[];
+
       const state = {
         exportedAt: new Date().toISOString(),
-        positions: this.db.db.prepare("SELECT * FROM positions ORDER BY id").all(),
-        pnl: this.db.db.prepare("SELECT * FROM pnl ORDER BY position_id").all(),
-        position_events: this.db.db.prepare("SELECT * FROM position_events ORDER BY id").all(),
-        opportunities: this.db.db
-          .prepare("SELECT * FROM opportunities WHERE ts >= ? ORDER BY id")
-          .all(sinceMs),
+        positions: merge(
+          asRows(prev.positions),
+          positions,
+          (r) => `${String(r.pool_address)}|${String(r.opened_at)}`,
+        ),
+        position_events: merge(
+          asRows(prev.position_events),
+          events,
+          (r) => `${String(r.ts)}|${String(r.kind)}|${String(r.data)}`,
+        ),
+        opportunities: merge(
+          asRows(prev.opportunities),
+          opportunities,
+          (r) => `${String(r.ts)}|${String(r.pool_address)}`,
+        ).filter((r) => Number(r.ts) >= sinceMs),
       };
       mkdirSync(dirname(this.filePath), { recursive: true });
       writeFileSync(this.filePath, JSON.stringify(state));
