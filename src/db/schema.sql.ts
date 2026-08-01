@@ -87,6 +87,18 @@ CREATE INDEX IF NOT EXISTS idx_metrics_heat ON pool_metrics(heat_pct_hr DESC);
 CREATE INDEX IF NOT EXISTS idx_metrics_rate ON pool_metrics(fee_rate_usd_min DESC);
 CREATE INDEX IF NOT EXISTS idx_metrics_ts   ON pool_metrics(ts DESC);
 
+-- Full RugCheck payload, not just a verdict: lp_locked_pct and the risk list
+-- are the most useful signals on a launch and are free in the same call.
+CREATE TABLE IF NOT EXISTS rugcheck (
+  mint          TEXT PRIMARY KEY,
+  checked_at    INTEGER NOT NULL,
+  score         REAL,
+  lp_locked_pct REAL,
+  risks_json    TEXT NOT NULL DEFAULT '[]',
+  unavailable   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_rugcheck_checked ON rugcheck(checked_at DESC);
+
 CREATE TABLE IF NOT EXISTS watchlist (
   pool_address TEXT PRIMARY KEY,
   added_at     INTEGER NOT NULL,

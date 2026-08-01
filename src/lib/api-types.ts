@@ -1,4 +1,5 @@
-import type { LeaderboardRow } from "@/db";
+import type { LeaderboardRow, RugcheckRow } from "@/db";
+import { verdictOf, type SafetyVerdict } from "@/data/rugcheck";
 
 /** Wire format for the table. Sparkline is decoded server-side so the client
  *  never parses JSON per row. */
@@ -30,6 +31,12 @@ export interface PoolRow {
   feeTvl30mPct: number;
   feeTvl24hPct: number;
   apyPct: number | null;
+  // Safety, joined from the rugcheck cache. Always present so the UI never has
+  // to distinguish "not loaded" from "no risk".
+  safety: SafetyVerdict;
+  rugcheckScore: number | null;
+  lpLockedPct: number | null;
+  rugcheckRisks: Array<{ name: string; level: string; description: string; score: number }>;
 }
 
 export interface PoolsResponse {
@@ -38,7 +45,7 @@ export interface PoolsResponse {
   counts: { pools: number; samples: number; metrics: number };
 }
 
-export function toPoolRow(r: LeaderboardRow): PoolRow {
+export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {
   let sparkline: number[] = [];
   try {
     const parsed: unknown = JSON.parse(r.sparklineJson);
@@ -46,6 +53,26 @@ export function toPoolRow(r: LeaderboardRow): PoolRow {
   } catch {
     // A malformed row should cost one sparkline, not the whole response.
   }
+
+  let risks: PoolRow["rugcheckRisks"] = [];
+  if (rug) {
+    try {
+      const parsed: unknown = JSON.parse(rug.risksJson);
+      if (Array.isArray(parsed)) risks = parsed as PoolRow["rugcheckRisks"];
+    } catch {
+      // Same reasoning: degrade one field, not the response.
+    }
+  }
+  const report = rug
+    ? {
+        mint: rug.mint,
+        checkedAt: rug.checkedAt,
+        score: rug.score,
+        lpLockedPct: rug.lpLockedPct,
+        risks,
+        unavailable: rug.unavailable === 1,
+      }
+    : null;
   return {
     address: r.address,
     protocol: r.protocol as "dlmm" | "damm_v2",
@@ -74,5 +101,14 @@ export function toPoolRow(r: LeaderboardRow): PoolRow {
     feeTvl30mPct: r.feeTvl30mPct,
     feeTvl24hPct: r.feeTvl24hPct,
     apyPct: r.apyPct,
+    safety: verdictOf(report),
+    rugcheckScore: report?.score ?? null,
+    lpLockedPct: report?.lpLockedPct ?? null,
+    rugcheckRisks: risks,
   };
+}
+
+/** Attaches cached RugCheck reports to a batch in one query. */
+export function toPoolRows(rows: LeaderboardRow[], rug: Map<string, RugcheckRow>): PoolRow[] {
+  return rows.map((r) => toPoolRow(r, rug.get(r.tokenXMint)));
 }

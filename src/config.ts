@@ -73,6 +73,20 @@ export const config = {
     sampleRetentionMs: 6 * 3_600_000,
   },
 
+  rugcheck: {
+    baseUrl: "https://api.rugcheck.xyz",
+    /** No published rate limit, so stay gentle on purpose. */
+    maxReqPerSec: 2,
+    requestTimeoutMs: 8_000,
+    /** Reports are re-fetched after this long. LP can be unlocked at any time. */
+    cacheTtlMs: 30 * 60_000,
+    /** Score is 0-100 and HIGHER IS RISKIER. */
+    cautionScore: 25,
+    dangerScore: 50,
+    /** Per cycle, how many uncached young pools to enrich. */
+    maxLookupsPerCycle: 12,
+  },
+
   /**
    * Display defaults. These are NOT hard filters like the old bot's — the UI
    * exposes them and the collector stores everything it sees.

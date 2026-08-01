@@ -4,7 +4,17 @@ import { dirname } from "node:path";
 import { config } from "@/config";
 import { SCHEMA } from "@/db/schema.sql";
 import type { DerivedMetrics } from "@/data/metrics";
+import type { RugcheckReport } from "@/data/rugcheck";
 import type { PoolView } from "@/types/meteora";
+
+export interface RugcheckRow {
+  mint: string;
+  checkedAt: number;
+  score: number | null;
+  lpLockedPct: number | null;
+  risksJson: string;
+  unavailable: number;
+}
 
 export interface LeaderboardRow {
   address: string;
@@ -50,6 +60,27 @@ export interface LeaderboardFilters {
   sort?: "heat" | "rate" | "tvl" | "volume" | "age" | "accel";
   limit?: number;
 }
+
+/** Shared projection for every board query, so the row shape stays in one place. */
+const LEADERBOARD_SELECT = `
+  SELECT
+    p.address, p.protocol, p.name,
+    p.token_x_symbol AS tokenXSymbol, p.token_y_symbol AS tokenYSymbol,
+    p.token_x_mint AS tokenXMint, p.bin_step AS binStep,
+    p.base_fee_pct AS baseFeePct, p.created_at AS createdAt,
+    p.is_blacklisted AS isBlacklisted, p.launchpad,
+    p.token_x_holders AS tokenXHolders,
+    p.token_x_verified AS tokenXVerified,
+    p.token_x_freeze_disabled AS tokenXFreezeDisabled,
+    m.ts, m.fee_rate_usd_min AS feeRateUsdMin, m.heat_pct_hr AS heatPctHr,
+    m.fee_accel AS feeAccel, m.hot_streak AS hotStreak,
+    m.sample_count AS sampleCount, m.sparkline_json AS sparklineJson,
+    m.tvl, m.price, m.volume_30m AS volume30m, m.fees_30m AS fees30m,
+    m.fee_tvl_30m_pct AS feeTvl30mPct, m.fee_tvl_24h_pct AS feeTvl24hPct,
+    m.dynamic_fee_pct AS dynamicFeePct, m.apy_pct AS apyPct
+  FROM pool_metrics m
+  JOIN pools p ON p.address = m.pool_address
+`;
 
 export class RadarDb {
   readonly db: Database.Database;
@@ -271,28 +302,102 @@ export class RadarDb {
 
     return this.db
       .prepare(
-        `SELECT
-           p.address, p.protocol, p.name,
-           p.token_x_symbol AS tokenXSymbol, p.token_y_symbol AS tokenYSymbol,
-           p.token_x_mint AS tokenXMint, p.bin_step AS binStep,
-           p.base_fee_pct AS baseFeePct, p.created_at AS createdAt,
-           p.is_blacklisted AS isBlacklisted, p.launchpad,
-           p.token_x_holders AS tokenXHolders,
-           p.token_x_verified AS tokenXVerified,
-           p.token_x_freeze_disabled AS tokenXFreezeDisabled,
-           m.ts, m.fee_rate_usd_min AS feeRateUsdMin, m.heat_pct_hr AS heatPctHr,
-           m.fee_accel AS feeAccel, m.hot_streak AS hotStreak,
-           m.sample_count AS sampleCount, m.sparkline_json AS sparklineJson,
-           m.tvl, m.price, m.volume_30m AS volume30m, m.fees_30m AS fees30m,
-           m.fee_tvl_30m_pct AS feeTvl30mPct, m.fee_tvl_24h_pct AS feeTvl24hPct,
-           m.dynamic_fee_pct AS dynamicFeePct, m.apy_pct AS apyPct
-         FROM pool_metrics m
-         JOIN pools p ON p.address = m.pool_address
+        `${LEADERBOARD_SELECT}
          ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
          ORDER BY ${orderBy}
          LIMIT @limit`,
       )
       .all(params) as LeaderboardRow[];
+  }
+
+  /**
+   * Freshly created pools, newest first.
+   *
+   * Separate from `leaderboard` because the filter is a disjunction: a pool
+   * three minutes old may have almost no TVL yet still be trading heavily, or
+   * hold real liquidity while nobody has touched it. Either is interesting;
+   * neither survives the AND-shaped filters of the market view. Meteora lists
+   * ~250k pools and most new ones are dust, so some floor is mandatory.
+   */
+  newPools(opts: {
+    maxAgeMinutes: number;
+    minTvl: number;
+    minVolume30m: number;
+    limit: number;
+    protocol?: "dlmm" | "damm_v2";
+  }): LeaderboardRow[] {
+    const where: string[] = ["p.created_at > @minCreatedAt", "(m.tvl >= @minTvl OR m.volume_30m >= @minVol)"];
+    const params: Record<string, unknown> = {
+      minCreatedAt: Date.now() - opts.maxAgeMinutes * 60_000,
+      minTvl: opts.minTvl,
+      minVol: opts.minVolume30m,
+      limit: opts.limit,
+    };
+    if (opts.protocol) {
+      where.push("p.protocol = @protocol");
+      params.protocol = opts.protocol;
+    }
+    return this.db
+      .prepare(
+        `${LEADERBOARD_SELECT}
+          WHERE ${where.join(" AND ")}
+          ORDER BY p.created_at DESC
+          LIMIT @limit`,
+      )
+      .all(params) as LeaderboardRow[];
+  }
+
+  // ---- rugcheck ----------------------------------------------------------
+
+  private static readonly UPSERT_RUGCHECK = `
+    INSERT INTO rugcheck (mint, checked_at, score, lp_locked_pct, risks_json, unavailable)
+    VALUES (@mint, @checkedAt, @score, @lpLockedPct, @risks, @unavailable)
+    ON CONFLICT(mint) DO UPDATE SET
+      checked_at = @checkedAt, score = @score, lp_locked_pct = @lpLockedPct,
+      risks_json = @risks, unavailable = @unavailable
+  `;
+
+  upsertRugcheck(r: RugcheckReport): void {
+    this.stmt(RadarDb.UPSERT_RUGCHECK).run({
+      mint: r.mint,
+      checkedAt: r.checkedAt,
+      score: r.score,
+      lpLockedPct: r.lpLockedPct,
+      risks: JSON.stringify(r.risks),
+      unavailable: r.unavailable ? 1 : 0,
+    });
+  }
+
+  /** Mints whose report is missing or older than the TTL, newest pools first. */
+  mintsNeedingRugcheck(candidateMints: string[], ttlMs: number, limit: number): string[] {
+    if (candidateMints.length === 0) return [];
+    const cutoff = Date.now() - ttlMs;
+    const fresh = new Set(
+      (
+        this.db
+          .prepare(
+            `SELECT mint FROM rugcheck
+              WHERE checked_at >= ?
+                AND mint IN (${candidateMints.map(() => "?").join(",")})`,
+          )
+          .all(cutoff, ...candidateMints) as Array<{ mint: string }>
+      ).map((r) => r.mint),
+    );
+    return candidateMints.filter((m) => !fresh.has(m)).slice(0, limit);
+  }
+
+  rugcheckFor(mints: string[]): Map<string, RugcheckRow> {
+    const out = new Map<string, RugcheckRow>();
+    if (mints.length === 0) return out;
+    const rows = this.db
+      .prepare(
+        `SELECT mint, checked_at AS checkedAt, score, lp_locked_pct AS lpLockedPct,
+                risks_json AS risksJson, unavailable
+           FROM rugcheck WHERE mint IN (${mints.map(() => "?").join(",")})`,
+      )
+      .all(...mints) as RugcheckRow[];
+    for (const r of rows) out.set(r.mint, r);
+    return out;
   }
 
   counts(): { pools: number; samples: number; metrics: number } {

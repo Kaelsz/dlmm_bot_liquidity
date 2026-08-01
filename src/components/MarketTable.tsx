@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HeatCell } from "@/components/HeatCell";
 import { Num, SignedNum } from "@/components/Num";
+import { SafetyBadge } from "@/components/SafetyBadge";
 import { Sparkline } from "@/components/Sparkline";
+import { TokenLinks } from "@/components/TokenLinks";
 import { fmtAge, fmtInt, fmtPct, fmtPrice, fmtRate, fmtUsd, splitPairName } from "@/lib/format";
 import type { PoolRow } from "@/lib/api-types";
 
@@ -19,7 +21,8 @@ const COLS = [
   { key: "fee", label: "Frais", w: "w-[74px]", align: "right" },
   { key: "price", label: "Prix", w: "w-[84px]", align: "right" },
   { key: "age", label: "Âge", w: "w-[56px]", align: "right", sortable: true },
-  { key: "safety", label: "Sécurité", w: "w-[72px]", align: "left" },
+  { key: "safety", label: "Sécu", w: "w-[64px]", align: "left" },
+  { key: "links", label: "Liens", w: "w-[86px]", align: "left" },
 ] as const;
 
 export type SortKey = "heat" | "rate" | "tvl" | "volume" | "age" | "accel";
@@ -167,7 +170,14 @@ export function MarketTable({
             </td>
 
             <td className="px-2">
-              <SafetyIcons row={r} />
+              <div className="flex items-center gap-1">
+                <SafetyBadge row={r} />
+                <SafetyIcons row={r} />
+              </div>
+            </td>
+
+            <td className="px-2">
+              <TokenLinks mint={r.tokenXMint} poolAddress={r.address} />
             </td>
           </tr>
         );

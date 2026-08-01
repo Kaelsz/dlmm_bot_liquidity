@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { config, type Protocol } from "@/config";
 import { ALL_APIS, apiFor, dammV2Api, dlmmApi } from "@/data/client";
 import { deriveMetrics, pushFeePoint, type FeePoint } from "@/data/metrics";
+import { fetchRugcheck, isTrustedMint } from "@/data/rugcheck";
 import { getDb, type RadarDb } from "@/db";
 import { logger } from "@/lib/logger";
 import type { PoolView, SortSpec } from "@/types/meteora";
@@ -175,17 +176,20 @@ export class Collector {
     // Young pools with real liquidity earn a place in the hot set immediately —
     // this is the window where a launch is worth catching.
     const now = Date.now();
+    const young: PoolView[] = [];
     for (const p of pools) {
       const age = now - p.createdAtMs;
-      if (
-        p.createdAtMs > 0 &&
-        age < config.collector.hotSetYoungPoolMaxAgeMs &&
-        p.tvl >= config.collector.hotSetYoungPoolMinTvlUsd
-      ) {
+      if (p.createdAtMs <= 0 || age >= config.collector.hotSetYoungPoolMaxAgeMs) continue;
+      young.push(p);
+      if (p.tvl >= config.collector.hotSetYoungPoolMinTvlUsd) {
         this.hotSet.set(key(p), { protocol: p.protocol, address: p.address, qualifiedAt: now });
       }
     }
+
     this.bus.emit("update");
+    // Safety lookups run after the emit so the table updates without waiting on
+    // a third-party API that has no published rate limit.
+    await this.enrichSafety(young);
   }
 
   private async runHotSet(): Promise<void> {
@@ -203,6 +207,43 @@ export class Collector {
     const pools = results.filter((p): p is PoolView => p !== undefined);
     this.ingest(pools, "hot");
     logger.debug({ polled: pools.length }, "hot set cycle");
+    this.bus.emit("update");
+  }
+
+  /**
+   * Fill in RugCheck reports for the non-quote side of young pools.
+   *
+   * Budgeted twice over: only mints without a fresh cache entry are looked up,
+   * and only a handful per cycle. The pools with real liquidity go first —
+   * most new pools are dust and are not worth a request.
+   */
+  private async enrichSafety(young: PoolView[]): Promise<void> {
+    if (young.length === 0) return;
+
+    const byMint = new Map<string, number>();
+    for (const p of young) {
+      // The risky side is whichever token is not the quote.
+      const mint = isTrustedMint(p.tokenY.address) ? p.tokenX.address : p.tokenY.address;
+      if (isTrustedMint(mint)) continue; // exotic pair, both sides trusted
+      byMint.set(mint, Math.max(byMint.get(mint) ?? 0, p.tvl));
+    }
+    const ranked = [...byMint.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m);
+
+    const todo = this.db.mintsNeedingRugcheck(
+      ranked,
+      config.rugcheck.cacheTtlMs,
+      config.rugcheck.maxLookupsPerCycle,
+    );
+    if (todo.length === 0) return;
+
+    const reports = await Promise.all(todo.map((m) => fetchRugcheck(m)));
+    const write = this.db.db.transaction((rs: typeof reports) => {
+      for (const r of rs) this.db.upsertRugcheck(r);
+    });
+    write(reports);
+
+    const flagged = reports.filter((r) => !r.unavailable).length;
+    logger.debug({ looked: reports.length, resolved: flagged }, "rugcheck enrichment");
     this.bus.emit("update");
   }
 

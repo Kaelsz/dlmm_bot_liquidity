@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb, type LeaderboardFilters } from "@/db";
-import { toPoolRow, type PoolsResponse } from "@/lib/api-types";
+import { toPoolRows, type PoolsResponse } from "@/lib/api-types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -38,10 +38,11 @@ export async function GET(req: Request): Promise<NextResponse<PoolsResponse>> {
   };
 
   const db = getDb();
-  const rows = db.leaderboard(filters).map(toPoolRow);
+  const rows = db.leaderboard(filters);
+  const rug = db.rugcheckFor([...new Set(rows.map((r) => r.tokenXMint))]);
 
   return NextResponse.json(
-    { rows, generatedAt: Date.now(), counts: db.counts() },
+    { rows: toPoolRows(rows, rug), generatedAt: Date.now(), counts: db.counts() },
     { headers: { "cache-control": "no-store" } },
   );
 }
