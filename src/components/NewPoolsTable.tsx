@@ -22,7 +22,15 @@ import type { PoolRow } from "@/lib/api-types";
  * may rest on two or three readings, and a number built from two points
  * deserves less trust than the same number built from thirty.
  */
-export function NewPoolsTable({ rows }: { rows: PoolRow[] }) {
+export function NewPoolsTable({
+  rows,
+  selected,
+  onSelect,
+}: {
+  rows: PoolRow[];
+  selected: string | null;
+  onSelect: (address: string) => void;
+}) {
   const known = useRef<Set<string>>(new Set());
   const [entering, setEntering] = useState<Set<string>>(new Set());
 
@@ -53,9 +61,10 @@ export function NewPoolsTable({ rows }: { rows: PoolRow[] }) {
         return (
           <tr
             key={r.address}
-            className={`h-row border-b border-line hover:bg-hover ${
+            onClick={() => onSelect(r.address)}
+            className={`h-row cursor-pointer border-b border-line hover:bg-hover ${
               entering.has(r.address) ? "row-enter" : ""
-            }`}
+            } ${selected === r.address ? "row-selected" : ""}`}
           >
             <td className="px-2">
               <span
@@ -161,7 +170,7 @@ export function NewPoolsTable({ rows }: { rows: PoolRow[] }) {
           </tr>
         );
       }),
-    [rows, entering, now],
+    [rows, entering, now, selected, onSelect],
   );
 
   return (

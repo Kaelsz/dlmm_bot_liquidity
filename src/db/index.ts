@@ -7,6 +7,15 @@ import type { DerivedMetrics } from "@/data/metrics";
 import type { RugcheckReport } from "@/data/rugcheck";
 import type { PoolView } from "@/types/meteora";
 
+/** One point of the derived signal, recomputed from two consecutive samples. */
+export interface SignalPoint {
+  ts: number;
+  rate: number;
+  heat: number;
+  tvl: number;
+  price: number;
+}
+
 export interface RugcheckRow {
   mint: string;
   checkedAt: number;
@@ -420,6 +429,53 @@ export class RadarDb {
       )
       .all(...mints) as RugcheckRow[];
     for (const r of rows) out.set(r.mint, r);
+    return out;
+  }
+
+  /** One pool by address, with its latest metrics. */
+  poolByAddress(address: string): LeaderboardRow | undefined {
+    return this.db.prepare(`${LEADERBOARD_SELECT} WHERE p.address = ?`).get(address) as
+      | LeaderboardRow
+      | undefined;
+  }
+
+  /**
+   * The derived signal over time, oldest first.
+   *
+   * Rates are recomputed here from consecutive cumulative-fee readings rather
+   * than read from pool_metrics, which only ever holds the latest value. The
+   * same guard as the live path applies: a reading where the counter went
+   * backwards is a stale API response and is dropped, not turned into a
+   * negative rate followed by a phantom spike.
+   */
+  signalHistory(
+    poolAddress: string,
+    sinceMs: number,
+  ): SignalPoint[] {
+    const rows = this.db
+      .prepare(
+        `SELECT ts, tvl, price, cum_fees_usd AS cumFees
+           FROM pool_samples WHERE pool_address = ? AND ts >= ?
+          ORDER BY ts ASC`,
+      )
+      .all(poolAddress, sinceMs) as Array<{
+      ts: number;
+      tvl: number;
+      price: number;
+      cumFees: number;
+    }>;
+
+    const out: SignalPoint[] = [];
+    for (let i = 1; i < rows.length; i += 1) {
+      const prev = rows[i - 1]!;
+      const curr = rows[i]!;
+      if (curr.cumFees < prev.cumFees) continue;
+      const dtMin = (curr.ts - prev.ts) / 60_000;
+      if (dtMin <= 0) continue;
+      const rate = (curr.cumFees - prev.cumFees) / dtMin;
+      const heat = curr.tvl > 0 ? ((rate * 60) / curr.tvl) * 100 : 0;
+      out.push({ ts: curr.ts, rate, heat, tvl: curr.tvl, price: curr.price });
+    }
     return out;
   }
 

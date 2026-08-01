@@ -126,6 +126,28 @@ body {
   animation: row-enter 1200ms ease-out;
 }
 
+/* The row whose detail panel is open. The left rule does the work — a
+   background tint alone would fight with the thermal cell next to it. */
+.row-selected {
+  background-color: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  box-shadow: inset 2px 0 0 0 var(--color-accent);
+}
+
+/* Detail panel arriving from the right. */
+@keyframes panel-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.panel-in {
+  animation: panel-in 180ms ease-out;
+}
+
 /* Reserved for the top thermal tier, so the eye is pulled to it. */
 @keyframes nuclear-pulse {
   0%,
@@ -144,6 +166,7 @@ body {
   .flash-up,
   .flash-down,
   .row-enter,
+  .panel-in,
   .nuclear-pulse {
     animation: none;
   }

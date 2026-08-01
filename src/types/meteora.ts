@@ -120,6 +120,36 @@ export const OhlcvResponseSchema = z.object({ data: z.array(OhlcvCandleSchema) }
 /** The API rejects anything shorter — there is no 1m timeframe. */
 export type OhlcvTimeframe = "5m" | "30m" | "1h" | "2h" | "4h" | "12h" | "24h";
 
+export const TIMEFRAME_SECONDS: Record<OhlcvTimeframe, number> = {
+  "5m": 300,
+  "30m": 1_800,
+  "1h": 3_600,
+  "2h": 7_200,
+  "4h": 14_400,
+  "12h": 43_200,
+  "24h": 86_400,
+};
+
+/**
+ * Hard cap on candles per OHLCV request, found by bisection: 100 candles come
+ * back fine, 101 returns an EMPTY ARRAY — not an error, not a truncated list.
+ * A silent empty response is exactly the failure mode that looks like "this
+ * pool has no trades", so any window must be sized against this.
+ */
+export const MAX_OHLCV_CANDLES = 100;
+
+/**
+ * Coarsest timeframe that still fills the window without exceeding the cap.
+ * Returns undefined when even 24h candles would overflow (>100 days).
+ */
+export function timeframeForWindow(windowSeconds: number): OhlcvTimeframe | undefined {
+  const order: OhlcvTimeframe[] = ["5m", "30m", "1h", "2h", "4h", "12h", "24h"];
+  for (const tf of order) {
+    if (windowSeconds / TIMEFRAME_SECONDS[tf] <= MAX_OHLCV_CANDLES) return tf;
+  }
+  return undefined;
+}
+
 /**
  * Sort fields accepted by `GET /pools?sort_by=<field>:<asc|desc>`.
  * Obtained verbatim from the API's own 400 error message. Note that

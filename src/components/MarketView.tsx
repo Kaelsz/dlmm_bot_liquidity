@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { MarketTable, type SortKey } from "@/components/MarketTable";
 import { Nav } from "@/components/Nav";
+import { PoolDetail } from "@/components/PoolDetailLazy";
 import { Select } from "@/components/Select";
 import { useLiveRows } from "@/lib/useLiveRows";
 import type { PoolsResponse } from "@/lib/api-types";
@@ -19,6 +20,8 @@ const DEFAULT_FILTERS: Filters = { minTvl: 5_000, minHeat: 0, protocol: "", maxA
 export function MarketView({ initial }: { initial: PoolsResponse }) {
   const [sort, setSort] = useState<SortKey>("heat");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [selected, setSelected] = useState<string | null>(null);
+  const closeDetail = useCallback(() => setSelected(null), []);
 
   const buildQuery = useCallback(() => {
     const q = new URLSearchParams({ sort, limit: "100" });
@@ -95,8 +98,16 @@ export function MarketView({ initial }: { initial: PoolsResponse }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <MarketTable rows={rows} sort={sort} onSortChange={setSort} />
+        <MarketTable
+          rows={rows}
+          sort={sort}
+          onSortChange={setSort}
+          selected={selected}
+          onSelect={setSelected}
+        />
       </div>
+
+      {selected ? <PoolDetail address={selected} onClose={closeDetail} /> : null}
 
       <footer className="border-t border-line bg-surface px-3 py-1 text-[10px] text-fg-faint">
         Heat = part du TVL versée en fees par heure, dérivée de Δfees cumulées entre deux

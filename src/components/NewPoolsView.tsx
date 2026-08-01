@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Nav } from "@/components/Nav";
 import { NewPoolsTable } from "@/components/NewPoolsTable";
+import { PoolDetail } from "@/components/PoolDetailLazy";
 import { Select } from "@/components/Select";
 import { useLiveRows } from "@/lib/useLiveRows";
 import type { PoolsResponse } from "@/lib/api-types";
@@ -23,6 +24,8 @@ const DEFAULT_FILTERS: Filters = {
 
 export function NewPoolsView({ initial }: { initial: PoolsResponse }) {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [selected, setSelected] = useState<string | null>(null);
+  const closeDetail = useCallback(() => setSelected(null), []);
 
   const buildQuery = useCallback(() => {
     const q = new URLSearchParams({
@@ -102,8 +105,10 @@ export function NewPoolsView({ initial }: { initial: PoolsResponse }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <NewPoolsTable rows={rows} />
+        <NewPoolsTable rows={rows} selected={selected} onSelect={setSelected} />
       </div>
+
+      {selected ? <PoolDetail address={selected} onClose={closeDetail} /> : null}
 
       <footer className="border-t border-line bg-surface px-3 py-1 text-[10px] text-fg-faint">
         Détection en moins de 20 s via <code className="text-fg-dim">pool_created_at:desc</code>. Le

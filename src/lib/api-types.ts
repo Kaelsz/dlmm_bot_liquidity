@@ -1,5 +1,6 @@
-import type { LeaderboardRow, RugcheckRow } from "@/db";
+import type { LeaderboardRow, RugcheckRow, SignalPoint } from "@/db";
 import { isTrustedMint, verdictOf, type SafetyVerdict } from "@/data/rugcheck";
+import type { OhlcvCandle, OhlcvTimeframe } from "@/types/meteora";
 
 /**
  * The side of the pair that carries the risk — i.e. not SOL/USDC/USDT.
@@ -58,6 +59,25 @@ export interface PoolsResponse {
   rows: PoolRow[];
   generatedAt: number;
   counts: { pools: number; samples: number; metrics: number };
+}
+
+export type { SignalPoint };
+
+/**
+ * Payload of `/api/pool/[address]`.
+ *
+ * `timeframe` is null when the window is too long for the API's 100-candle
+ * ceiling; `candles` is then empty and the panel says so rather than pretending
+ * the pool never traded.
+ */
+export interface PoolDetailResponse {
+  pool: PoolRow;
+  candles: OhlcvCandle[];
+  timeframe: OhlcvTimeframe | null;
+  /** Derived fee-rate series from our own samples, oldest first. */
+  signal: SignalPoint[];
+  windowHours: number;
+  generatedAt: number;
 }
 
 export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {

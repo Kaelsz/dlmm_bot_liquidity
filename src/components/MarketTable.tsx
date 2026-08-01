@@ -40,10 +40,14 @@ export function MarketTable({
   rows,
   sort,
   onSortChange,
+  selected,
+  onSelect,
 }: {
   rows: PoolRow[];
   sort: SortKey;
   onSortChange: (s: SortKey) => void;
+  selected: string | null;
+  onSelect: (address: string) => void;
 }) {
   // Track which addresses are new since the last render so they can be
   // highlighted once on arrival.
@@ -85,7 +89,10 @@ export function MarketTable({
         return (
           <tr
             key={r.address}
-            className={`h-row border-b border-line hover:bg-hover ${isNew ? "row-enter" : ""}`}
+            onClick={() => onSelect(r.address)}
+            className={`h-row cursor-pointer border-b border-line hover:bg-hover ${
+              isNew ? "row-enter" : ""
+            } ${selected === r.address ? "row-selected" : ""}`}
           >
             <td className="px-2">
               <div className="flex items-center gap-1.5 overflow-hidden">
@@ -182,7 +189,7 @@ export function MarketTable({
           </tr>
         );
       }),
-    [rows, entering, now],
+    [rows, entering, now, selected, onSelect],
   );
 
   return (
