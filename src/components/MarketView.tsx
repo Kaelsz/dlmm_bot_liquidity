@@ -63,8 +63,11 @@ export function MarketView({ initial }: { initial: PoolsResponse }) {
     return () => es.close();
   }, [refresh]);
 
-  const [now, setNow] = useState(() => Date.now());
+  // Null until mounted, so the server and client agree on the first render —
+  // see the same pattern in MarketTable.
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
+    setNow(Date.now());
     const t = setInterval(() => setNow(Date.now()), 5_000);
     return () => clearInterval(t);
   }, []);
@@ -84,7 +87,7 @@ export function MarketView({ initial }: { initial: PoolsResponse }) {
             <span className="tnum text-fg-dim">{fmtInt(counts.metrics)}</span> pools ·{" "}
             <span className="tnum text-fg-dim">{fmtInt(counts.samples)}</span> mesures
           </span>
-          <span className="tnum">{fmtSince(lastUpdate, now)}</span>
+          <span className="tnum">{fmtSince(lastUpdate, now ?? lastUpdate)}</span>
           <span className="flex items-center gap-1.5" title={live ? "flux live actif" : "flux interrompu"}>
             <span
               className={`inline-block h-1.5 w-1.5 rounded-full ${

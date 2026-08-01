@@ -60,9 +60,16 @@ export function MarketTable({
     for (const r of rows) known.current.add(r.address);
   }, [rows]);
 
-  // The clock only exists to keep the age column ticking between data pushes.
-  const [now, setNow] = useState(() => Date.now());
+  // Clock for the age column, which has to keep ticking between data pushes.
+  //
+  // It starts as null rather than Date.now(): the server renders at one instant
+  // and the client hydrates at another, so seeding from the wall clock makes
+  // the two trees disagree and React throws away the server HTML. Until the
+  // effect runs, ages are measured against each row's own metric timestamp,
+  // which is identical on both sides.
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
+    setNow(Date.now());
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
@@ -155,7 +162,7 @@ export function MarketTable({
                 className="tnum block text-right text-fg-dim"
                 title={r.createdAt ? new Date(r.createdAt).toLocaleString("fr-FR") : ""}
               >
-                {fmtAge(r.createdAt, now)}
+                {fmtAge(r.createdAt, now ?? r.ts)}
               </span>
             </td>
 
