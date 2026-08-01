@@ -1,13 +1,47 @@
 import type { NextConfig } from "next";
 
+/**
+ * better-sqlite3 is a native addon. Its loader (`bindings`) resolves the
+ * compiled .node file at runtime using require('fs') and require('path'),
+ * which the bundler cannot follow — it reports "Module not found: Can't
+ * resolve 'path'".
+ *
+ * `serverExternalPackages` covers route handlers and server components but
+ * NOT the instrumentation bundle, and a failure there is fatal in a way that
+ * is easy to misdiagnose: the collector still runs (the runtime require
+ * succeeds), yet every route returns 500 with the stale compile error. So we
+ * also declare them as webpack externals for the server build.
+ */
+const NATIVE_DEPS = ["better-sqlite3", "bindings", "file-uri-to-path"];
+
 const nextConfig: NextConfig = {
-  // better-sqlite3 is a native module: it must be required at runtime rather
-  // than bundled by the server compiler.
-  serverExternalPackages: ["better-sqlite3"],
+  serverExternalPackages: [...NATIVE_DEPS, "pino"],
   // Self-hosted on a VPS: emit a minimal standalone server for the Docker image.
   output: "standalone",
   reactStrictMode: true,
   poweredByHeader: false,
+
+  webpack: (config, { isServer }) => {
+    if (!isServer) return config;
+    const existing = Array.isArray(config.externals)
+      ? config.externals
+      : config.externals
+        ? [config.externals]
+        : [];
+    config.externals = [
+      ...existing,
+      // A function rather than a bare list: it also has to catch `node:`-prefixed
+      // builtins, which the instrumentation bundle otherwise rejects outright
+      // with "Reading from node:fs is not handled by plugins".
+      ({ request }: { request?: string }, cb: (err?: null, result?: string) => void) => {
+        if (!request) return cb();
+        if (request.startsWith("node:")) return cb(null, `commonjs ${request}`);
+        if (NATIVE_DEPS.includes(request)) return cb(null, `commonjs ${request}`);
+        return cb();
+      },
+    ];
+    return config;
+  },
 };
 
 export default nextConfig;

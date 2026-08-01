@@ -6,6 +6,10 @@
     "node": ">=22"
   },
   "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "//": "pnpm 10 blocks install scripts by default; better-sqlite3 needs its native binding compiled.",
+    "onlyBuiltDependencies": ["better-sqlite3"]
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
