@@ -109,8 +109,15 @@ export const config = {
     matureTtlMs: 60 * 60_000,
     /** A pool older than this uses the long TTL. */
     youngPoolMaxAgeMs: 6 * 3_600_000,
-    /** Tokens scanned per collector cycle. */
-    maxScansPerCycle: 8,
+    /**
+     * Tokens scanned per collector cycle.
+     *
+     * Steady-state cost is bounded by the TTLs above, not by this number: once
+     * everything on screen has been scanned, the queue is empty and cycles are
+     * free. This mainly governs how fast the column fills from cold. Each scan
+     * is one or two Helius calls, so raising it trades credits for freshness.
+     */
+    maxScansPerCycle: 16,
   },
 
   /**
