@@ -149,10 +149,16 @@ export class Collector {
       }
     }
     const pages = await Promise.all(jobs);
-    const seen = this.ingest(pages.flat(), "discovery");
+    const pools = pages.flat();
+    const seen = this.ingest(pools, "discovery");
     this.refreshHotSet();
     logger.debug({ pools: seen }, "discovery cycle");
     this.bus.emit("update");
+
+    // Safety for the hottest pools too, not only the freshly launched ones —
+    // otherwise the market view's safety column is permanently "unknown".
+    const hot = [...this.hotSet.keys()];
+    await this.enrichSafety(pools.filter((p) => hot.includes(key(p))));
   }
 
   private async runNewPools(): Promise<void> {
@@ -217,16 +223,19 @@ export class Collector {
    * and only a handful per cycle. The pools with real liquidity go first —
    * most new pools are dust and are not worth a request.
    */
-  private async enrichSafety(young: PoolView[]): Promise<void> {
-    if (young.length === 0) return;
+  private async enrichSafety(pools: PoolView[]): Promise<void> {
+    if (pools.length === 0) return;
 
     const byMint = new Map<string, number>();
-    for (const p of young) {
-      // The risky side is whichever token is not the quote.
-      const mint = isTrustedMint(p.tokenY.address) ? p.tokenX.address : p.tokenY.address;
+    for (const p of pools) {
+      // The risky side is whichever token is not the quote. Meteora does not
+      // normalise the order, so this cannot assume token_x.
+      const mint = isTrustedMint(p.tokenX.address) ? p.tokenY.address : p.tokenX.address;
       if (isTrustedMint(mint)) continue; // exotic pair, both sides trusted
       byMint.set(mint, Math.max(byMint.get(mint) ?? 0, p.tvl));
     }
+    // Biggest first: with a bounded budget, the pools someone might actually
+    // size into are worth the request.
     const ranked = [...byMint.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m);
 
     const todo = this.db.mintsNeedingRugcheck(
