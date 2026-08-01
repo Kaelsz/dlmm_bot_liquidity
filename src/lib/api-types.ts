@@ -60,7 +60,12 @@ export interface PoolRow {
    */
   kolCount: number;
   kolHolders: KolHolder[];
-  kolScannedAt: number | null;
+  /**
+   * When the index was last rebuilt, or null if it never has been. Null means
+   * "unknown"; a timestamp with kolCount 0 means "checked, none" — the two
+   * must stay distinguishable or an unindexed launch reads as clean.
+   */
+  kolIndexedAt: number | null;
 }
 
 export interface PoolsResponse {
@@ -69,7 +74,12 @@ export interface PoolsResponse {
   counts: { pools: number; samples: number; metrics: number };
 }
 
-export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow, kol?: KolRow): PoolRow {
+export function toPoolRow(
+  r: LeaderboardRow,
+  rug?: RugcheckRow,
+  kol?: KolRow,
+  kolIndexedAt: number | null = null,
+): PoolRow {
   let sparkline: number[] = [];
   try {
     const parsed: unknown = JSON.parse(r.sparklineJson);
@@ -143,7 +153,7 @@ export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow, kol?: KolRow): P
     rugcheckRisks: risks,
     kolCount: kol?.kolCount ?? 0,
     kolHolders,
-    kolScannedAt: kol?.scannedAt ?? null,
+    kolIndexedAt,
   };
 }
 
@@ -152,10 +162,11 @@ export function toPoolRows(
   rows: LeaderboardRow[],
   rug: Map<string, RugcheckRow>,
   kol: Map<string, KolRow> = new Map(),
+  kolIndexedAt: number | null = null,
 ): PoolRow[] {
   return rows.map((r) => {
     const mint = riskyMintOf(r);
-    return toPoolRow(r, rug.get(mint), kol.get(mint));
+    return toPoolRow(r, rug.get(mint), kol.get(mint), kolIndexedAt);
   });
 }
 

@@ -15,7 +15,7 @@ import type { PoolRow } from "@/lib/api-types";
  * the two must not look the same, or an unscanned launch reads as clean.
  */
 export function KolBadge({ row }: { row: PoolRow }) {
-  if (row.kolScannedAt === null) {
+  if (row.kolIndexedAt === null) {
     return (
       <span title="pas encore analysé" className="block text-center text-fg-faint opacity-25">
         ·
@@ -63,7 +63,7 @@ export function KolBadge({ row }: { row: PoolRow }) {
 
 /** Named list for the wider layout of the new-pools view. */
 export function KolNames({ row }: { row: PoolRow }) {
-  if (row.kolScannedAt === null || row.kolCount === 0) return <KolBadge row={row} />;
+  if (row.kolIndexedAt === null || row.kolCount === 0) return <KolBadge row={row} />;
   const first = row.kolHolders[0];
   if (!first) return <KolBadge row={row} />;
   return (

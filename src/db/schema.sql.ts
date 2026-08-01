@@ -116,17 +116,20 @@ CREATE TABLE IF NOT EXISTS rugcheck (
 );
 CREATE INDEX IF NOT EXISTS idx_rugcheck_checked ON rugcheck(checked_at DESC);
 
--- Which labelled traders hold a token, refreshed on a TTL. Stored per mint
--- rather than per pool: the same token often has several pools.
+-- Inverted index: which labelled traders hold a mint. Rebuilt wholesale by
+-- walking the wallet list, so only mints with at least one KOL get a row.
+-- "No row" therefore means zero, NOT unknown — the distinction is carried by
+-- meta.kol_index_built_at, which is null until the first pass completes.
 CREATE TABLE IF NOT EXISTS token_kol (
-  mint          TEXT PRIMARY KEY,
-  scanned_at    INTEGER NOT NULL,
-  kol_count     INTEGER NOT NULL DEFAULT 0,
-  total_holders INTEGER NOT NULL DEFAULT 0,
-  holders_json  TEXT NOT NULL DEFAULT '[]',
-  unavailable   INTEGER NOT NULL DEFAULT 0
+  mint         TEXT PRIMARY KEY,
+  kol_count    INTEGER NOT NULL DEFAULT 0,
+  holders_json TEXT NOT NULL DEFAULT '[]'
 );
-CREATE INDEX IF NOT EXISTS idx_token_kol_scanned ON token_kol(scanned_at DESC);
+
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS watchlist (
   pool_address TEXT PRIMARY KEY,

@@ -20,9 +20,10 @@ export default function Page() {
   const mints = riskyMintsOf(rows);
   const rug = db.rugcheckFor(mints);
   const kol = db.kolFor(mints);
+  const kolIndexedAt = db.kolIndexBuiltAt();
 
   const initial: PoolsResponse = {
-    rows: toPoolRows(rows, rug, kol),
+    rows: toPoolRows(rows, rug, kol, kolIndexedAt),
     generatedAt: Date.now(),
     counts: db.counts(),
   };

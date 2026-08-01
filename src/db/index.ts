@@ -5,16 +5,13 @@ import { config } from "@/config";
 import { MIGRATIONS, SCHEMA } from "@/db/schema.sql";
 import type { DerivedMetrics } from "@/data/metrics";
 import type { RugcheckReport } from "@/data/rugcheck";
-import type { KolScan } from "@/data/kol";
+import type { KolHolder } from "@/data/kol";
 import type { PoolView } from "@/types/meteora";
 
 export interface KolRow {
   mint: string;
-  scannedAt: number;
   kolCount: number;
-  totalHolders: number;
   holdersJson: string;
-  unavailable: number;
 }
 
 export interface RugcheckRow {
@@ -435,52 +432,40 @@ export class RadarDb {
 
   // ---- KOL ---------------------------------------------------------------
 
-  private static readonly UPSERT_KOL = `
-    INSERT INTO token_kol (mint, scanned_at, kol_count, total_holders, holders_json, unavailable)
-    VALUES (@mint, @scannedAt, @kolCount, @totalHolders, @holders, @unavailable)
-    ON CONFLICT(mint) DO UPDATE SET
-      scanned_at = @scannedAt, kol_count = @kolCount,
-      total_holders = @totalHolders, holders_json = @holders,
-      unavailable = @unavailable
-  `;
-
-  upsertKolScan(s: KolScan): void {
-    this.stmt(RadarDb.UPSERT_KOL).run({
-      mint: s.mint,
-      scannedAt: s.scannedAt,
-      kolCount: s.holders.length,
-      totalHolders: s.totalHolders,
-      holders: JSON.stringify(s.holders),
-      unavailable: s.unavailable ? 1 : 0,
-    });
+  /**
+   * Swap in a freshly built index.
+   *
+   * The whole table is replaced rather than upserted, inside one transaction:
+   * a KOL who sold out must disappear, and leaving stale rows behind would
+   * show holders who are long gone. Only mints with at least one KOL are
+   * stored; absence means zero.
+   */
+  replaceKolIndex(byMint: Map<string, KolHolder[]>, builtAt: number): void {
+    const del = this.db.prepare("DELETE FROM token_kol");
+    const ins = this.db.prepare(
+      "INSERT INTO token_kol (mint, kol_count, holders_json) VALUES (?, ?, ?)",
+    );
+    const setMeta = this.db.prepare(
+      "INSERT INTO meta (key, value) VALUES ('kol_index_built_at', ?) " +
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    );
+    this.db.transaction(() => {
+      del.run();
+      for (const [mint, holders] of byMint) {
+        ins.run(mint, holders.length, JSON.stringify(holders));
+      }
+      setMeta.run(String(builtAt));
+    })();
   }
 
-  /**
-   * Mints due for a KOL scan, in the given order.
-   *
-   * Callers pass a per-mint TTL because a pool minted ten minutes ago deserves
-   * a far shorter one than a year-old pair: on a launch, a KOL arriving is the
-   * entire signal, whereas rescanning mature tokens every cycle would spend
-   * the credit budget on information that does not move.
-   */
-  mintsNeedingKolScan(candidates: Array<{ mint: string; ttlMs: number }>, limit: number): string[] {
-    if (candidates.length === 0) return [];
-    const mints = candidates.map((c) => c.mint);
-    const rows = this.db
-      .prepare(
-        `SELECT mint, scanned_at AS scannedAt FROM token_kol
-          WHERE mint IN (${mints.map(() => "?").join(",")})`,
-      )
-      .all(...mints) as Array<{ mint: string; scannedAt: number }>;
-    const lastScan = new Map(rows.map((r) => [r.mint, r.scannedAt]));
-    const now = Date.now();
-    const out: string[] = [];
-    for (const c of candidates) {
-      const at = lastScan.get(c.mint);
-      if (at === undefined || now - at >= c.ttlMs) out.push(c.mint);
-      if (out.length >= limit) break;
-    }
-    return out;
+  /** When the index was last rebuilt, or null if it never has been. */
+  kolIndexBuiltAt(): number | null {
+    const row = this.db.prepare("SELECT value FROM meta WHERE key = 'kol_index_built_at'").get() as
+      | { value: string }
+      | undefined;
+    if (!row) return null;
+    const n = Number(row.value);
+    return Number.isFinite(n) ? n : null;
   }
 
   kolFor(mints: string[]): Map<string, KolRow> {
@@ -488,8 +473,7 @@ export class RadarDb {
     if (mints.length === 0) return out;
     const rows = this.db
       .prepare(
-        `SELECT mint, scanned_at AS scannedAt, kol_count AS kolCount,
-                total_holders AS totalHolders, holders_json AS holdersJson, unavailable
+        `SELECT mint, kol_count AS kolCount, holders_json AS holdersJson
            FROM token_kol WHERE mint IN (${mints.map(() => "?").join(",")})`,
       )
       .all(...mints) as KolRow[];

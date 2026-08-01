@@ -6,20 +6,36 @@ import raw from "@/data/kol-wallets.json";
 /**
  * "Which well-known traders hold this token."
  *
- * No API answers this directly. GMGN's own KOL endpoint is a firehose of
- * recent KOL trades with no token parameter, so even with their key the
- * reverse lookup has to be built. We build it the other way round, which is
- * cheaper and does not depend on a vendor: keep a labelled wallet list, then
- * intersect it with the actual holders of the handful of tokens on screen.
+ * No API answers this directly — GMGN's own KOL endpoint is a firehose of
+ * recent trades with no token parameter, so even with their key the reverse
+ * lookup has to be built. We build it by inverting the relation.
  *
- * READ THIS BEFORE PUTTING IT NEXT TO THE SAFETY COLUMN: a KOL holding a token
+ * WHY INVERTED, AND NOT BY LISTING EACH TOKEN'S HOLDERS
+ *
+ * The obvious approach — for each displayed token, fetch its holders and
+ * intersect with the wallet list — was the first implementation and it was
+ * quietly wrong. Holder lists are unbounded and Helius returns them in no
+ * particular order, so any page cap samples an ARBITRARY subset rather than
+ * the top of the book. Measured on ANSEM: capped at 2000 accounts it reported
+ * 2 KOLs; the full walk found 59,809 holders and 20 KOLs. A tenfold
+ * undercount, and worse, one that looked plausible.
+ *
+ * Walking every token fully is not an option either: ANSEM alone took 60
+ * requests and 6.6 seconds.
+ *
+ * Going the other way is bounded and exact. Each wallet's holdings come back
+ * in a SINGLE getTokenAccountsByOwner call with no pagination, so one pass
+ * over the list is ~553 requests and yields an accurate index for the entire
+ * market at once — including tokens nobody is looking at yet.
+ *
+ * READ THIS BEFORE MOVING IT NEXT TO THE SAFETY COLUMN: a KOL holding a token
  * is an ATTENTION signal, not a safety one. Paid promotion is routine on
  * Solana memecoins, and a KOL entry is frequently the distribution event
- * rather than an endorsement. It belongs with momentum, and the UI says so.
- *
- * The list is committed to the repo (refresh with scripts/fetch-kol-list.mjs)
- * so a rendering path never depends on a third-party page being reachable.
+ * rather than an endorsement.
  */
+
+const SPL_TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
 export interface KolWallet {
   wallet: string;
@@ -29,24 +45,17 @@ export interface KolWallet {
 
 const LIST = raw as { source: string; fetchedAt: string; count: number; wallets: KolWallet[] };
 
-/** Wallet address -> label. Built once per process. */
-const BY_WALLET: Map<string, KolWallet> = new Map(LIST.wallets.map((w) => [w.wallet, w]));
-
 export const kolListInfo = {
   source: LIST.source,
   fetchedAt: LIST.fetchedAt,
-  count: BY_WALLET.size,
+  count: LIST.wallets.length,
 };
-
-export function kolFor(wallet: string): KolWallet | undefined {
-  return BY_WALLET.get(wallet);
-}
 
 export interface KolHolder {
   wallet: string;
   name: string;
   twitter: string | null;
-  /** Raw token amount; decimals are not applied because only ranking matters. */
+  /** UI amount, decimals applied. Used only to rank holders within a token. */
   amount: number;
 }
 
@@ -56,26 +65,22 @@ export function heliusConfigured(): boolean {
   return config.helius.apiKey.length > 0;
 }
 
-interface TokenAccount {
-  owner: string;
-  amount: number;
+interface ParsedTokenAccount {
+  account?: {
+    data?: {
+      parsed?: { info?: { mint?: string; tokenAmount?: { uiAmount?: number | null } } };
+    };
+  };
 }
 
-/**
- * All holders of a mint, via Helius DAS.
- *
- * `getTokenLargestAccounts` on a plain RPC would be one call, but it returns
- * only the top 20 — a KOL holding a small bag would be invisible, which is
- * exactly the case worth catching. DAS paginates the full holder set instead;
- * verified returning 574 owners for a token where the RPC would have shown 20.
- */
-async function fetchHolders(mint: string): Promise<TokenAccount[] | undefined> {
-  if (!heliusConfigured()) return undefined;
+/** Every mint a wallet currently holds a non-zero balance of. */
+async function holdingsOf(wallet: string): Promise<Map<string, number> | undefined> {
   const url = config.helius.rpcUrl(config.helius.apiKey);
-  const out: TokenAccount[] = [];
-  let cursor: string | undefined;
+  const held = new Map<string, number>();
 
-  for (let page = 0; page < config.helius.maxHolderPages; page += 1) {
+  // Token-2022 lives in a separate program and is invisible to a query on the
+  // original one, so both are asked.
+  for (const programId of [SPL_TOKEN_PROGRAM, TOKEN_2022_PROGRAM]) {
     await limiter.acquire();
     try {
       const res = await fetch(url, {
@@ -85,74 +90,77 @@ async function fetchHolders(mint: string): Promise<TokenAccount[] | undefined> {
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: "kol",
-          method: "getTokenAccounts",
-          params: {
-            mint,
-            limit: config.helius.holderPageSize,
-            ...(cursor ? { cursor } : {}),
-            options: { showZeroBalance: false },
-          },
+          method: "getTokenAccountsByOwner",
+          params: [wallet, { programId }, { encoding: "jsonParsed" }],
         }),
       });
       if (!res.ok) {
-        logger.debug({ mint, status: res.status }, "helius non-ok");
-        return out.length > 0 ? out : undefined;
+        logger.debug({ wallet, status: res.status }, "helius non-ok");
+        return held.size > 0 ? held : undefined;
       }
-      const json = (await res.json()) as {
-        error?: unknown;
-        result?: { token_accounts?: Array<{ owner?: string; amount?: number }>; cursor?: string };
-      };
+      const json = (await res.json()) as { error?: unknown; result?: { value?: ParsedTokenAccount[] } };
       if (json.error) {
-        logger.debug({ mint, err: json.error }, "helius error");
-        return out.length > 0 ? out : undefined;
+        logger.debug({ wallet, err: json.error }, "helius error");
+        return held.size > 0 ? held : undefined;
       }
-      const accounts = json.result?.token_accounts ?? [];
-      for (const a of accounts) {
-        if (a.owner) out.push({ owner: a.owner, amount: Number(a.amount ?? 0) });
+      for (const acc of json.result?.value ?? []) {
+        const info = acc.account?.data?.parsed?.info;
+        const mint = info?.mint;
+        const amount = info?.tokenAmount?.uiAmount ?? 0;
+        if (mint && amount > 0) held.set(mint, (held.get(mint) ?? 0) + amount);
       }
-      cursor = json.result?.cursor;
-      if (!cursor || accounts.length === 0) break;
     } catch (err) {
-      logger.debug({ mint, err }, "helius request failed");
-      return out.length > 0 ? out : undefined;
+      logger.debug({ wallet, err }, "helius request failed");
+      return held.size > 0 ? held : undefined;
     }
   }
-  return out;
+  return held;
 }
 
-export interface KolScan {
-  mint: string;
-  scannedAt: number;
-  holders: KolHolder[];
-  /** Total distinct owners seen — context for how thorough the scan was. */
-  totalHolders: number;
-  /** True when the lookup could not run at all (no key, or upstream failure). */
-  unavailable: boolean;
+export interface KolIndex {
+  /** mint -> the labelled wallets holding it, richest first. */
+  byMint: Map<string, KolHolder[]>;
+  walletsScanned: number;
+  walletsFailed: number;
+  builtAt: number;
 }
 
-/** Intersect the labelled wallet list with a token's actual holders. */
-export async function scanKols(mint: string): Promise<KolScan> {
-  const accounts = await fetchHolders(mint);
-  if (!accounts) {
-    return { mint, scannedAt: Date.now(), holders: [], totalHolders: 0, unavailable: true };
-  }
+/**
+ * One full pass over the wallet list, producing the mint -> KOLs index.
+ *
+ * Bounded work: exactly two requests per wallet regardless of how much they
+ * hold. Runs with modest concurrency so a full refresh takes tens of seconds
+ * rather than minutes, while the token bucket keeps the request rate gentle.
+ */
+export async function buildKolIndex(): Promise<KolIndex> {
+  const byMint = new Map<string, KolHolder[]>();
+  let scanned = 0;
+  let failed = 0;
 
-  // One owner can hold through several token accounts; sum them.
-  const byOwner = new Map<string, number>();
-  for (const a of accounts) byOwner.set(a.owner, (byOwner.get(a.owner) ?? 0) + a.amount);
+  const queue = [...LIST.wallets];
+  const concurrency = Math.max(1, config.kol.concurrency);
 
-  const holders: KolHolder[] = [];
-  for (const [owner, amount] of byOwner) {
-    const kol = BY_WALLET.get(owner);
-    if (kol) holders.push({ wallet: owner, name: kol.name, twitter: kol.twitter, amount });
-  }
-  holders.sort((a, b) => b.amount - a.amount);
-
-  return {
-    mint,
-    scannedAt: Date.now(),
-    holders,
-    totalHolders: byOwner.size,
-    unavailable: false,
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const w = queue.shift();
+      if (!w) return;
+      const held = await holdingsOf(w.wallet);
+      if (!held) {
+        failed += 1;
+        continue;
+      }
+      scanned += 1;
+      for (const [mint, amount] of held) {
+        const list = byMint.get(mint);
+        const entry: KolHolder = { wallet: w.wallet, name: w.name, twitter: w.twitter, amount };
+        if (list) list.push(entry);
+        else byMint.set(mint, [entry]);
+      }
+    }
   };
+
+  await Promise.all(Array.from({ length: concurrency }, worker));
+  for (const list of byMint.values()) list.sort((a, b) => b.amount - a.amount);
+
+  return { byMint, walletsScanned: scanned, walletsFailed: failed, builtAt: Date.now() };
 }

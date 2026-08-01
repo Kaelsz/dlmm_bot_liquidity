@@ -101,23 +101,15 @@ export const config = {
 
   kol: {
     /**
-     * How long a token's KOL scan stays fresh. Short for young pools, where a
-     * KOL entering is the whole point; long for the rest, where re-scanning
-     * every cycle would burn the credit budget for almost no new information.
+     * Full rebuild of the mint -> KOLs index. Cost is fixed — two requests per
+     * wallet in the list, whatever the market is doing — so the only tradeoff
+     * is freshness against credits. Ten minutes means a KOL entering a pool is
+     * visible within ten, which is the right granularity for a signal that is
+     * about attention rather than execution.
      */
-    freshTtlMs: 5 * 60_000,
-    matureTtlMs: 60 * 60_000,
-    /** A pool older than this uses the long TTL. */
-    youngPoolMaxAgeMs: 6 * 3_600_000,
-    /**
-     * Tokens scanned per collector cycle.
-     *
-     * Steady-state cost is bounded by the TTLs above, not by this number: once
-     * everything on screen has been scanned, the queue is empty and cycles are
-     * free. This mainly governs how fast the column fills from cold. Each scan
-     * is one or two Helius calls, so raising it trades credits for freshness.
-     */
-    maxScansPerCycle: 16,
+    refreshIntervalMs: num(process.env.KOL_REFRESH_INTERVAL_MS, 10 * 60_000),
+    /** Parallel wallet lookups. The token bucket still caps the actual rate. */
+    concurrency: 8,
   },
 
   /**
