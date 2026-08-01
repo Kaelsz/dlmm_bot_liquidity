@@ -156,7 +156,7 @@ export function NewPoolsTable({ rows }: { rows: PoolRow[] }) {
             </td>
 
             <td className="px-2">
-              <TokenLinks mint={r.tokenXMint} poolAddress={r.address} />
+              <TokenLinks mint={r.riskyMint} poolAddress={r.address} />
             </td>
           </tr>
         );

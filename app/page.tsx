@@ -1,6 +1,6 @@
 import { MarketView } from "@/components/MarketView";
 import { getDb } from "@/db";
-import { toPoolRows, type PoolsResponse } from "@/lib/api-types";
+import { riskyMintsOf, toPoolRows, type PoolsResponse } from "@/lib/api-types";
 
 // The board reflects a collector that writes continuously; caching it would
 // only ever serve stale numbers.
@@ -17,7 +17,7 @@ export default function Page() {
     excludeBlacklisted: true,
     freshWithinMs: 15 * 60_000,
   });
-  const rug = db.rugcheckFor([...new Set(rows.map((r) => r.tokenXMint))]);
+  const rug = db.rugcheckFor(riskyMintsOf(rows));
 
   const initial: PoolsResponse = {
     rows: toPoolRows(rows, rug),

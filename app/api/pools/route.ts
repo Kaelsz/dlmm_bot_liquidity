@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb, type LeaderboardFilters } from "@/db";
-import { toPoolRows, type PoolsResponse } from "@/lib/api-types";
+import { riskyMintsOf, toPoolRows, type PoolsResponse } from "@/lib/api-types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -39,7 +39,7 @@ export async function GET(req: Request): Promise<NextResponse<PoolsResponse>> {
 
   const db = getDb();
   const rows = db.leaderboard(filters);
-  const rug = db.rugcheckFor([...new Set(rows.map((r) => r.tokenXMint))]);
+  const rug = db.rugcheckFor(riskyMintsOf(rows));
 
   return NextResponse.json(
     { rows: toPoolRows(rows, rug), generatedAt: Date.now(), counts: db.counts() },

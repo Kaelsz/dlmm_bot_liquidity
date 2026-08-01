@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { config } from "@/config";
 import { getDb } from "@/db";
-import { toPoolRows, type PoolsResponse } from "@/lib/api-types";
+import { riskyMintsOf, toPoolRows, type PoolsResponse } from "@/lib/api-types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,7 +25,7 @@ export async function GET(req: Request): Promise<NextResponse<PoolsResponse>> {
     ...(protocolParam === "dlmm" || protocolParam === "damm_v2" ? { protocol: protocolParam } : {}),
   });
 
-  const rug = db.rugcheckFor([...new Set(rows.map((r) => r.tokenXMint))]);
+  const rug = db.rugcheckFor(riskyMintsOf(rows));
 
   return NextResponse.json(
     { rows: toPoolRows(rows, rug), generatedAt: Date.now(), counts: db.counts() },

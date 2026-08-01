@@ -23,6 +23,7 @@ export interface LeaderboardRow {
   tokenXSymbol: string;
   tokenYSymbol: string;
   tokenXMint: string;
+  tokenYMint: string;
   binStep: number | null;
   baseFeePct: number;
   dynamicFeePct: number | null;
@@ -66,7 +67,7 @@ const LEADERBOARD_SELECT = `
   SELECT
     p.address, p.protocol, p.name,
     p.token_x_symbol AS tokenXSymbol, p.token_y_symbol AS tokenYSymbol,
-    p.token_x_mint AS tokenXMint, p.bin_step AS binStep,
+    p.token_x_mint AS tokenXMint, p.token_y_mint AS tokenYMint, p.bin_step AS binStep,
     p.base_fee_pct AS baseFeePct, p.created_at AS createdAt,
     p.is_blacklisted AS isBlacklisted, p.launchpad,
     p.token_x_holders AS tokenXHolders,

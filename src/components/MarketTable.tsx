@@ -177,7 +177,7 @@ export function MarketTable({
             </td>
 
             <td className="px-2">
-              <TokenLinks mint={r.tokenXMint} poolAddress={r.address} />
+              <TokenLinks mint={r.riskyMint} poolAddress={r.address} />
             </td>
           </tr>
         );

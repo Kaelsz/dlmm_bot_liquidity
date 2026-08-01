@@ -1,7 +1,7 @@
 import { NewPoolsView } from "@/components/NewPoolsView";
 import { config } from "@/config";
 import { getDb } from "@/db";
-import { toPoolRows, type PoolsResponse } from "@/lib/api-types";
+import { riskyMintsOf, toPoolRows, type PoolsResponse } from "@/lib/api-types";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ export default function Page() {
     minVolume30m: config.display.newPoolMinVolume30mUsd,
     limit: 100,
   });
-  const rug = db.rugcheckFor([...new Set(rows.map((r) => r.tokenXMint))]);
+  const rug = db.rugcheckFor(riskyMintsOf(rows));
 
   const initial: PoolsResponse = {
     rows: toPoolRows(rows, rug),

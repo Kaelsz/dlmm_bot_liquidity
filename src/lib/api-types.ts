@@ -1,5 +1,16 @@
 import type { LeaderboardRow, RugcheckRow } from "@/db";
-import { verdictOf, type SafetyVerdict } from "@/data/rugcheck";
+import { isTrustedMint, verdictOf, type SafetyVerdict } from "@/data/rugcheck";
+
+/**
+ * The side of the pair that carries the risk — i.e. not SOL/USDC/USDT.
+ *
+ * Token order is not normalised by Meteora: `SOL-CTO` has SOL as token_x while
+ * `TOM-SOL` has it as token_y. Assuming token_x is the interesting one sends
+ * both the RugCheck lookup and the explorer links to SOL for half the pairs.
+ */
+export function riskyMintOf(r: { tokenXMint: string; tokenYMint: string }): string {
+  return isTrustedMint(r.tokenXMint) && !isTrustedMint(r.tokenYMint) ? r.tokenYMint : r.tokenXMint;
+}
 
 /** Wire format for the table. Sparkline is decoded server-side so the client
  *  never parses JSON per row. */
@@ -8,6 +19,9 @@ export interface PoolRow {
   protocol: "dlmm" | "damm_v2";
   name: string;
   tokenXMint: string;
+  tokenYMint: string;
+  /** Non-quote side: what the safety badge and the explorer links point at. */
+  riskyMint: string;
   binStep: number | null;
   baseFeePct: number;
   dynamicFeePct: number | null;
@@ -78,6 +92,8 @@ export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {
     protocol: r.protocol as "dlmm" | "damm_v2",
     name: r.name,
     tokenXMint: r.tokenXMint,
+    tokenYMint: r.tokenYMint,
+    riskyMint: riskyMintOf(r),
     binStep: r.binStep,
     baseFeePct: r.baseFeePct,
     dynamicFeePct: r.dynamicFeePct,
@@ -108,7 +124,12 @@ export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {
   };
 }
 
-/** Attaches cached RugCheck reports to a batch in one query. */
+/** Attaches cached RugCheck reports to a batch, keyed on the risky side. */
 export function toPoolRows(rows: LeaderboardRow[], rug: Map<string, RugcheckRow>): PoolRow[] {
-  return rows.map((r) => toPoolRow(r, rug.get(r.tokenXMint)));
+  return rows.map((r) => toPoolRow(r, rug.get(riskyMintOf(r))));
+}
+
+/** Mints to look up for a batch — the deduplicated risky sides. */
+export function riskyMintsOf(rows: LeaderboardRow[]): string[] {
+  return [...new Set(rows.map(riskyMintOf))];
 }
