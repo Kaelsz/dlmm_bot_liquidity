@@ -108,8 +108,42 @@ avaient été mal interprétées dans un projet précédent :
   écartés pour ne jamais produire de taux négatif ni de faux pic au
   rattrapage.
 
+## Les vues
+
+**Marché** (`/`) — classement par heat, tri sur toutes les colonnes, filtres
+TVL / heat / protocole / âge.
+
+**Nouvelles pools** (`/nouvelles`) — détection en moins de 20 s. Les colonnes
+sont groupées selon les deux moitiés de la seule question qui compte à cet
+instant : *ça imprime ?* (âge, $/min, heat, TVL, volume, nombre
+d'échantillons) et *c'est safe ?* (verdict RugCheck, LP verrouillée, holders,
+freeze authority).
+
+Le filtre y est une **disjonction** TVL *ou* volume : une pool de trois
+minutes peut n'avoir presque pas de liquidité tout en tradant fort, ou
+l'inverse — les deux cas méritent un regard.
+
+Chaque ligne porte cinq liens rapides : **G**MGN, **P**adre, **R**ugCheck,
+**B**ubblemaps, **M**eteora. Ils pointent sur le token *non-quote* de la
+paire, jamais sur SOL.
+
+## Sécurité
+
+Le verdict RugCheck ne rend jamais « vert » un token sans rapport : un
+lancement de deux minutes que personne n'a analysé est affiché « inconnu »,
+ce qui n'est pas rassurant et ne doit pas en avoir l'air. Le score n'est pas
+non plus inversé à l'écran, puisque l'échelle RugCheck est
+*plus haut = plus risqué* — le retourner silencieusement ferait passer le
+chiffre brut du site pour une contradiction.
+
+`lpLockedPct` est le signal le plus fort sur un lancement et il est affiché
+en barre : une LP non verrouillée peut être retirée à tout moment.
+
 ## État
 
-Phase 1 livrée : socle data, collecteur, vue Marché.
-À suivre : vue Nouvelles pools + badges RugCheck, alertes Discord/Telegram,
-panneau de détail avec OHLCV, déploiement Docker.
+Phases 1 et 2 livrées : socle data, collecteur trois tiers, vue Marché, vue
+Nouvelles pools, badges RugCheck, liens rapides.
+À suivre : alertes Discord/Telegram, panneau de détail avec OHLCV et
+simulateur de position, déploiement Docker, et — non prioritaire — l'ouverture
+de position en un clic (signature côté navigateur uniquement, aucune clé
+privée côté serveur).
