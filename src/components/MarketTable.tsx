@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HeatCell } from "@/components/HeatCell";
-import { KolBadge } from "@/components/KolBadge";
 import { Num, SignedNum } from "@/components/Num";
 import { SafetyBadge } from "@/components/SafetyBadge";
 import { Sparkline } from "@/components/Sparkline";
@@ -15,7 +14,6 @@ const COLS = [
   { key: "heat", label: "Heat %/h", w: "w-[92px]", align: "right", sortable: true },
   { key: "rate", label: "$/min", w: "w-[74px]", align: "right", sortable: true },
   { key: "spark", label: "Tendance", w: "w-[72px]", align: "left" },
-  { key: "kol", label: "KOL", w: "w-[46px]", align: "left" },
   { key: "accel", label: "Accél.", w: "w-[76px]", align: "right", sortable: true },
   { key: "tvl", label: "TVL", w: "w-[74px]", align: "right", sortable: true },
   { key: "volume", label: "Vol 30m", w: "w-[74px]", align: "right", sortable: true },
@@ -123,10 +121,6 @@ export function MarketTable({
 
             <td className="px-2">
               <Sparkline points={r.sparkline} />
-            </td>
-
-            <td className="px-2">
-              <KolBadge row={r} />
             </td>
 
             <td className="px-2">

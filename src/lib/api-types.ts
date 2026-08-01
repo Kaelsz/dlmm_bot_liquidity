@@ -1,5 +1,4 @@
-import type { KolRow, LeaderboardRow, RugcheckRow } from "@/db";
-import type { KolHolder } from "@/data/kol";
+import type { LeaderboardRow, RugcheckRow } from "@/db";
 import { isTrustedMint, verdictOf, type SafetyVerdict } from "@/data/rugcheck";
 
 /**
@@ -53,19 +52,6 @@ export interface PoolRow {
   rugcheckScore: number | null;
   lpLockedPct: number | null;
   rugcheckRisks: Array<{ name: string; level: string; description: string; score: number }>;
-  /**
-   * Labelled traders currently holding the risky token. This is an ATTENTION
-   * signal, not a safety one — paid promotion is routine, and a KOL entry is
-   * often the distribution event. The UI groups it with momentum accordingly.
-   */
-  kolCount: number;
-  kolHolders: KolHolder[];
-  /**
-   * When the index was last rebuilt, or null if it never has been. Null means
-   * "unknown"; a timestamp with kolCount 0 means "checked, none" — the two
-   * must stay distinguishable or an unindexed launch reads as clean.
-   */
-  kolIndexedAt: number | null;
 }
 
 export interface PoolsResponse {
@@ -74,12 +60,7 @@ export interface PoolsResponse {
   counts: { pools: number; samples: number; metrics: number };
 }
 
-export function toPoolRow(
-  r: LeaderboardRow,
-  rug?: RugcheckRow,
-  kol?: KolRow,
-  kolIndexedAt: number | null = null,
-): PoolRow {
+export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {
   let sparkline: number[] = [];
   try {
     const parsed: unknown = JSON.parse(r.sparklineJson);
@@ -95,15 +76,6 @@ export function toPoolRow(
       if (Array.isArray(parsed)) risks = parsed as PoolRow["rugcheckRisks"];
     } catch {
       // Same reasoning: degrade one field, not the response.
-    }
-  }
-  let kolHolders: KolHolder[] = [];
-  if (kol) {
-    try {
-      const parsed: unknown = JSON.parse(kol.holdersJson);
-      if (Array.isArray(parsed)) kolHolders = parsed as KolHolder[];
-    } catch {
-      // Degrade one field, not the response.
     }
   }
   const riskyIsX = riskyMintOf(r) === r.tokenXMint;
@@ -151,23 +123,12 @@ export function toPoolRow(
     rugcheckScore: report?.score ?? null,
     lpLockedPct: report?.lpLockedPct ?? null,
     rugcheckRisks: risks,
-    kolCount: kol?.kolCount ?? 0,
-    kolHolders,
-    kolIndexedAt,
   };
 }
 
-/** Attaches cached RugCheck and KOL data to a batch, keyed on the risky side. */
-export function toPoolRows(
-  rows: LeaderboardRow[],
-  rug: Map<string, RugcheckRow>,
-  kol: Map<string, KolRow> = new Map(),
-  kolIndexedAt: number | null = null,
-): PoolRow[] {
-  return rows.map((r) => {
-    const mint = riskyMintOf(r);
-    return toPoolRow(r, rug.get(mint), kol.get(mint), kolIndexedAt);
-  });
+/** Attaches cached RugCheck reports to a batch, keyed on the risky side. */
+export function toPoolRows(rows: LeaderboardRow[], rug: Map<string, RugcheckRow>): PoolRow[] {
+  return rows.map((r) => toPoolRow(r, rug.get(riskyMintOf(r))));
 }
 
 /** Mints to look up for a batch — the deduplicated risky sides. */

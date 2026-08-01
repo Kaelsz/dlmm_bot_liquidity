@@ -127,6 +127,12 @@ Chaque ligne porte cinq liens rapides : **G**MGN, **P**adre, **R**ugCheck,
 **B**ubblemaps, **M**eteora. Ils pointent sur le token *non-quote* de la
 paire, jamais sur SOL.
 
+> Un compteur de traders connus (KOL) par token a été construit puis retiré :
+> il exigeait de reconstruire un index inversé en interrogeant ~550 wallets,
+> soit ~1100 requêtes Helius par passe, ce qui dépasse largement un quota
+> gratuit. Le code reste dans l'historique git (`b902b42`) si le besoin
+> revient avec un quota adapté.
+
 ## Sécurité
 
 Le verdict RugCheck ne rend jamais « vert » un token sans rapport : un

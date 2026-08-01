@@ -2,7 +2,6 @@ import { EventEmitter } from "node:events";
 import { config, type Protocol } from "@/config";
 import { ALL_APIS, apiFor, dammV2Api, dlmmApi } from "@/data/client";
 import { deriveMetrics, pushFeePoint, type FeePoint } from "@/data/metrics";
-import { buildKolIndex, heliusConfigured, kolListInfo } from "@/data/kol";
 import { fetchRugcheck, isTrustedMint } from "@/data/rugcheck";
 import { getDb, type RadarDb } from "@/db";
 import { logger } from "@/lib/logger";
@@ -16,21 +15,11 @@ interface HotEntry {
   qualifiedAt: number;
 }
 
-export interface KolIndexStatus {
-  builtAt: number;
-  mints: number;
-  walletsScanned: number;
-  walletsFailed: number;
-  durationMs: number;
-}
-
 export interface CollectorStatus {
   running: boolean;
   startedAt: number | null;
-  cycles: { discovery: number; newPools: number; hotSet: number; kol: number };
-  lastCycleAt: { discovery: number | null; newPools: number | null; hotSet: number | null; kol: number | null };
-  kolIndex: KolIndexStatus | null;
-  kolListSize: number;
+  cycles: { discovery: number; newPools: number; hotSet: number };
+  lastCycleAt: { discovery: number | null; newPools: number | null; hotSet: number | null };
   hotSetSize: number;
   trackedPools: number;
   errors: number;
@@ -66,13 +55,11 @@ export class Collector {
   private running = false;
   private startedAt: number | null = null;
   private errors = 0;
-  private readonly cycles = { discovery: 0, newPools: 0, hotSet: 0, kol: 0 };
-  private kolIndex: KolIndexStatus | null = null;
+  private readonly cycles = { discovery: 0, newPools: 0, hotSet: 0 };
   private readonly lastCycleAt: CollectorStatus["lastCycleAt"] = {
     discovery: null,
     newPools: null,
     hotSet: null,
-    kol: null,
   };
 
   constructor(db: RadarDb = getDb()) {
@@ -101,9 +88,6 @@ export class Collector {
     this.every(config.collector.hotSetIntervalMs, () =>
       this.safe("hotSet", () => this.runHotSet()),
     );
-    void this.safe("kol", () => this.refreshKolIndex());
-    this.every(config.kol.refreshIntervalMs, () => this.safe("kol", () => this.refreshKolIndex()));
-
     // Housekeeping, well off the hot path.
     this.every(10 * 60_000, async () => {
       const removed = this.db.pruneSamples(config.collector.sampleRetentionMs);
@@ -273,38 +257,6 @@ export class Collector {
     this.bus.emit("update");
   }
 
-  /**
-   * Rebuild the mint -> KOLs index by walking the wallet list.
-   *
-   * Scheduled rather than driven by what is on screen, because the cost does
-   * not depend on the screen: it is two requests per wallet, full stop. One
-   * pass indexes the whole market, so a token that becomes interesting five
-   * minutes from now already has an accurate count waiting for it.
-   */
-  private async refreshKolIndex(): Promise<void> {
-    if (!heliusConfigured()) return;
-    const t0 = Date.now();
-    const index = await buildKolIndex();
-    // A pass that failed wholesale must not wipe a good index.
-    if (index.walletsScanned === 0) {
-      logger.warn({ failed: index.walletsFailed }, "kol index rebuild produced nothing, keeping previous");
-      return;
-    }
-    this.db.replaceKolIndex(index.byMint, index.builtAt);
-    this.kolIndex = {
-      builtAt: index.builtAt,
-      mints: index.byMint.size,
-      walletsScanned: index.walletsScanned,
-      walletsFailed: index.walletsFailed,
-      durationMs: Date.now() - t0,
-    };
-    logger.info(
-      { mints: index.byMint.size, wallets: index.walletsScanned, failed: index.walletsFailed, ms: Date.now() - t0 },
-      "kol index rebuilt",
-    );
-    this.bus.emit("update");
-  }
-
   // ---- ingestion ---------------------------------------------------------
 
   /**
@@ -367,8 +319,6 @@ export class Collector {
       cycles: { ...this.cycles },
       lastCycleAt: { ...this.lastCycleAt },
       hotSetSize: this.hotSet.size,
-      kolIndex: this.kolIndex,
-      kolListSize: kolListInfo.count,
       trackedPools: this.history.size,
       errors: this.errors,
       api: {

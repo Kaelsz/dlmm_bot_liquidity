@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { getCollector } from "@/collector/collector";
 import { config } from "@/config";
 import { getDb } from "@/db";
-import { kolListInfo, requestsPerPass } from "@/data/kol";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,17 +24,6 @@ export async function GET(): Promise<NextResponse> {
       collectorEnabled: config.collector.enabled,
       uptimeSec,
       db: counts,
-      kol: {
-        listSize: kolListInfo.count,
-        listFetchedAt: kolListInfo.fetchedAt,
-        indexBuiltAt: getDb().kolIndexBuiltAt(),
-        // The dominant Helius cost; see the arithmetic in config.kol.
-        requestsPerPass: requestsPerPass(),
-        projectedRequestsPerDay: Math.round(
-          requestsPerPass() * ((24 * 3_600_000) / config.kol.refreshIntervalMs),
-        ),
-        refreshIntervalMin: Math.round(config.kol.refreshIntervalMs / 60_000),
-      },
       collector: status,
       rates: status
         ? {

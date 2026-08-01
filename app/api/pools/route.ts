@@ -41,11 +41,9 @@ export async function GET(req: Request): Promise<NextResponse<PoolsResponse>> {
   const rows = db.leaderboard(filters);
   const mints = riskyMintsOf(rows);
   const rug = db.rugcheckFor(mints);
-  const kol = db.kolFor(mints);
-  const kolIndexedAt = db.kolIndexBuiltAt();
 
   return NextResponse.json(
-    { rows: toPoolRows(rows, rug, kol, kolIndexedAt), generatedAt: Date.now(), counts: db.counts() },
+    { rows: toPoolRows(rows, rug), generatedAt: Date.now(), counts: db.counts() },
     { headers: { "cache-control": "no-store" } },
   );
 }

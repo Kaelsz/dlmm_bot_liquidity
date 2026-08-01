@@ -2,17 +2,10 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { config } from "@/config";
-import { DROP_IF_STALE, MIGRATIONS, SCHEMA } from "@/db/schema.sql";
+import { MIGRATIONS, SCHEMA } from "@/db/schema.sql";
 import type { DerivedMetrics } from "@/data/metrics";
 import type { RugcheckReport } from "@/data/rugcheck";
-import type { KolHolder } from "@/data/kol";
 import type { PoolView } from "@/types/meteora";
-
-export interface KolRow {
-  mint: string;
-  kolCount: number;
-  holdersJson: string;
-}
 
 export interface RugcheckRow {
   mint: string;
@@ -110,18 +103,6 @@ export class RadarDb {
     this.db = new Database(path);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("synchronous = NORMAL");
-    // Drop caches whose shape no longer matches, before the schema recreates them.
-    for (const { table, ifColumnExists } of DROP_IF_STALE) {
-      try {
-        const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-        if (cols.some((c) => c.name === ifColumnExists)) {
-          this.db.exec(`DROP TABLE ${table}`);
-        }
-      } catch {
-        // Table absent on a fresh database — nothing to drop.
-      }
-    }
-
     this.db.exec(SCHEMA);
     for (const sql of MIGRATIONS) {
       try {
@@ -438,57 +419,6 @@ export class RadarDb {
            FROM rugcheck WHERE mint IN (${mints.map(() => "?").join(",")})`,
       )
       .all(...mints) as RugcheckRow[];
-    for (const r of rows) out.set(r.mint, r);
-    return out;
-  }
-
-  // ---- KOL ---------------------------------------------------------------
-
-  /**
-   * Swap in a freshly built index.
-   *
-   * The whole table is replaced rather than upserted, inside one transaction:
-   * a KOL who sold out must disappear, and leaving stale rows behind would
-   * show holders who are long gone. Only mints with at least one KOL are
-   * stored; absence means zero.
-   */
-  replaceKolIndex(byMint: Map<string, KolHolder[]>, builtAt: number): void {
-    const del = this.db.prepare("DELETE FROM token_kol");
-    const ins = this.db.prepare(
-      "INSERT INTO token_kol (mint, kol_count, holders_json) VALUES (?, ?, ?)",
-    );
-    const setMeta = this.db.prepare(
-      "INSERT INTO meta (key, value) VALUES ('kol_index_built_at', ?) " +
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    );
-    this.db.transaction(() => {
-      del.run();
-      for (const [mint, holders] of byMint) {
-        ins.run(mint, holders.length, JSON.stringify(holders));
-      }
-      setMeta.run(String(builtAt));
-    })();
-  }
-
-  /** When the index was last rebuilt, or null if it never has been. */
-  kolIndexBuiltAt(): number | null {
-    const row = this.db.prepare("SELECT value FROM meta WHERE key = 'kol_index_built_at'").get() as
-      | { value: string }
-      | undefined;
-    if (!row) return null;
-    const n = Number(row.value);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  kolFor(mints: string[]): Map<string, KolRow> {
-    const out = new Map<string, KolRow>();
-    if (mints.length === 0) return out;
-    const rows = this.db
-      .prepare(
-        `SELECT mint, kol_count AS kolCount, holders_json AS holdersJson
-           FROM token_kol WHERE mint IN (${mints.map(() => "?").join(",")})`,
-      )
-      .all(...mints) as KolRow[];
     for (const r of rows) out.set(r.mint, r);
     return out;
   }
