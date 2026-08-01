@@ -1,12 +1,32 @@
+# dependencies
 node_modules/
+
+# next.js
+.next/
+out/
+next-env.d.ts
+
+# build output
 dist/
-data/
+build/
+
+# runtime data — SQLite file and its WAL sidecars. The directory itself is
+# kept (via data/.gitkeep) so a fresh clone has somewhere to write.
+data/*
+!data/.gitkeep
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+*.log
+
+# env — never commit secrets
 .env
 .env.local
-*.log
-keypair.json
-wallet.json
+.env.*.local
+
+# misc
+.DS_Store
+*.pem
+*.tsbuildinfo
+coverage/

@@ -1,0 +1,88 @@
+/**
+ * Central configuration.
+ *
+ * Everything tunable lives here with a commented default. Secrets and
+ * deployment-specific values come from the environment; Next.js loads
+ * `.env.local` / `.env` automatically, so no dotenv import is needed.
+ */
+
+const num = (v: string | undefined, fallback: number): number => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+export const config = {
+  storage: {
+    /** SQLite file. On the VPS this must sit on a mounted volume. */
+    dbPath: process.env.DB_PATH ?? "data/radar.db",
+  },
+
+  log: {
+    level: (process.env.LOG_LEVEL ?? "info") as "trace" | "debug" | "info" | "warn" | "error",
+  },
+
+  datapi: {
+    dlmmBaseUrl: "https://dlmm.datapi.meteora.ag",
+    dammV2BaseUrl: "https://damm-v2.datapi.meteora.ag",
+    /** Documented limits are ~30/s (DLMM) and ~10/s (DAMM v2); keep headroom. */
+    dlmmMaxReqPerSec: 20,
+    dammV2MaxReqPerSec: 6,
+    requestTimeoutMs: 10_000,
+    backoffBaseMs: 500,
+    backoffMaxMs: 30_000,
+    maxRetries: 5,
+  },
+
+  collector: {
+    /** Master switch — set COLLECTOR=off to run the UI against an existing DB. */
+    enabled: (process.env.COLLECTOR ?? "on") !== "off",
+
+    /**
+     * Tier A — broad market discovery. The list endpoint returns
+     * `cumulative_metrics` for every row, so a handful of requests yields the
+     * derived fee rate for the whole visible market. 2 protocols x 3 sorts x
+     * 2 pages = 12 requests per cycle.
+     */
+    discoveryIntervalMs: num(process.env.DISCOVERY_INTERVAL_MS, 60_000),
+    discoveryPages: 2,
+    discoveryPageSize: 100,
+    discoverySorts: [
+      "fee_tvl_ratio_30m:desc",
+      "volume_30m:desc",
+      "tvl:desc",
+    ] as const,
+
+    /** Tier B — new pool detection via `pool_created_at:desc` (1 request per protocol). */
+    newPoolsIntervalMs: num(process.env.NEW_POOLS_INTERVAL_MS, 20_000),
+    newPoolsPageSize: 100,
+
+    /** Tier C — per-pool polling for sub-minute resolution on the hot set. */
+    hotSetIntervalMs: num(process.env.HOT_SET_INTERVAL_MS, 12_000),
+    hotSetMaxSize: 60,
+    /** Top-N by heat from tier A are always in the hot set. */
+    hotSetTopByHeat: 40,
+    /** Pools younger than this with enough liquidity join the hot set. */
+    hotSetYoungPoolMaxAgeMs: 30 * 60_000,
+    hotSetYoungPoolMinTvlUsd: 500,
+    /** Dropped from the hot set after this long without re-qualifying. */
+    hotSetTtlMs: 10 * 60_000,
+
+    /** Rolling fee history kept in memory per pool (points). */
+    historyPoints: 60,
+    /** Raw samples retention. */
+    sampleRetentionMs: 6 * 3_600_000,
+  },
+
+  /**
+   * Display defaults. These are NOT hard filters like the old bot's — the UI
+   * exposes them and the collector stores everything it sees.
+   */
+  display: {
+    /** Anti-dust default on the new-pools view: TVL above OR 30m volume above. */
+    newPoolMinTvlUsd: 500,
+    newPoolMinVolume30mUsd: 1_000,
+    leaderboardSize: 100,
+  },
+} as const;
+
+export type Protocol = "dlmm" | "damm_v2";
