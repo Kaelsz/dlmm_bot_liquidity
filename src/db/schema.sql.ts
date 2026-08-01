@@ -116,6 +116,18 @@ CREATE TABLE IF NOT EXISTS rugcheck (
 );
 CREATE INDEX IF NOT EXISTS idx_rugcheck_checked ON rugcheck(checked_at DESC);
 
+-- Which labelled traders hold a token, refreshed on a TTL. Stored per mint
+-- rather than per pool: the same token often has several pools.
+CREATE TABLE IF NOT EXISTS token_kol (
+  mint          TEXT PRIMARY KEY,
+  scanned_at    INTEGER NOT NULL,
+  kol_count     INTEGER NOT NULL DEFAULT 0,
+  total_holders INTEGER NOT NULL DEFAULT 0,
+  holders_json  TEXT NOT NULL DEFAULT '[]',
+  unavailable   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_token_kol_scanned ON token_kol(scanned_at DESC);
+
 CREATE TABLE IF NOT EXISTS watchlist (
   pool_address TEXT PRIMARY KEY,
   added_at     INTEGER NOT NULL,

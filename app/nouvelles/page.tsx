@@ -17,10 +17,12 @@ export default function Page() {
     minVolume30m: config.display.newPoolMinVolume30mUsd,
     limit: 100,
   });
-  const rug = db.rugcheckFor(riskyMintsOf(rows));
+  const mints = riskyMintsOf(rows);
+  const rug = db.rugcheckFor(mints);
+  const kol = db.kolFor(mints);
 
   const initial: PoolsResponse = {
-    rows: toPoolRows(rows, rug),
+    rows: toPoolRows(rows, rug, kol),
     generatedAt: Date.now(),
     counts: db.counts(),
   };

@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { config, type Protocol } from "@/config";
 import { ALL_APIS, apiFor, dammV2Api, dlmmApi } from "@/data/client";
 import { deriveMetrics, pushFeePoint, type FeePoint } from "@/data/metrics";
+import { heliusConfigured, scanKols } from "@/data/kol";
 import { fetchRugcheck, isTrustedMint } from "@/data/rugcheck";
 import { getDb, type RadarDb } from "@/db";
 import { logger } from "@/lib/logger";
@@ -157,8 +158,10 @@ export class Collector {
 
     // Safety for the hottest pools too, not only the freshly launched ones —
     // otherwise the market view's safety column is permanently "unknown".
-    const hot = [...this.hotSet.keys()];
-    await this.enrichSafety(pools.filter((p) => hot.includes(key(p))));
+    const hot = new Set(this.hotSet.keys());
+    const hotPools = pools.filter((p) => hot.has(key(p)));
+    await this.enrichSafety(hotPools);
+    await this.enrichKol(hotPools);
   }
 
   private async runNewPools(): Promise<void> {
@@ -193,9 +196,10 @@ export class Collector {
     }
 
     this.bus.emit("update");
-    // Safety lookups run after the emit so the table updates without waiting on
-    // a third-party API that has no published rate limit.
+    // Third-party lookups run after the emit so the table updates without
+    // waiting on APIs whose latency we do not control.
     await this.enrichSafety(young);
+    await this.enrichKol(young);
   }
 
   private async runHotSet(): Promise<void> {
@@ -254,6 +258,48 @@ export class Collector {
     const flagged = reports.filter((r) => !r.unavailable).length;
     logger.debug({ looked: reports.length, resolved: flagged }, "rugcheck enrichment");
     this.bus.emit("update");
+  }
+
+  /**
+   * Scan which labelled traders hold the tokens currently on screen.
+   *
+   * Pull-shaped on purpose. Watching every KOL wallet's swaps would be the
+   * thorough approach but needs a public webhook endpoint; intersecting the
+   * holder set of the few dozen tokens we actually display answers the same
+   * question with a fraction of the calls, and answers it as "holds now"
+   * rather than "bought once" — which is the more honest reading anyway.
+   */
+  private async enrichKol(pools: PoolView[]): Promise<void> {
+    if (!heliusConfigured() || pools.length === 0) return;
+
+    const now = Date.now();
+    const candidates = new Map<string, { mint: string; ttlMs: number; tvl: number }>();
+    for (const p of pools) {
+      const mint = isTrustedMint(p.tokenX.address) ? p.tokenY.address : p.tokenX.address;
+      if (isTrustedMint(mint)) continue;
+      const young =
+        p.createdAtMs > 0 && now - p.createdAtMs < config.kol.youngPoolMaxAgeMs;
+      const ttlMs = young ? config.kol.freshTtlMs : config.kol.matureTtlMs;
+      const prev = candidates.get(mint);
+      // Keep the shortest TTL and the largest TVL seen across this token's pools.
+      if (!prev || ttlMs < prev.ttlMs || p.tvl > prev.tvl) {
+        candidates.set(mint, { mint, ttlMs: Math.min(ttlMs, prev?.ttlMs ?? ttlMs), tvl: Math.max(p.tvl, prev?.tvl ?? 0) });
+      }
+    }
+
+    const ordered = [...candidates.values()].sort((a, b) => b.tvl - a.tvl);
+    const todo = this.db.mintsNeedingKolScan(ordered, config.kol.maxScansPerCycle);
+    if (todo.length === 0) return;
+
+    const scans = await Promise.all(todo.map((m) => scanKols(m)));
+    const write = this.db.db.transaction((ss: typeof scans) => {
+      for (const s of ss) this.db.upsertKolScan(s);
+    });
+    write(scans);
+
+    const found = scans.reduce((n, s) => n + s.holders.length, 0);
+    logger.debug({ scanned: scans.length, kolHoldings: found }, "kol scan");
+    if (found > 0) this.bus.emit("update");
   }
 
   // ---- ingestion ---------------------------------------------------------

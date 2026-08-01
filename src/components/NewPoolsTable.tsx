@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HeatCell } from "@/components/HeatCell";
+import { KolNames } from "@/components/KolBadge";
 import { Num } from "@/components/Num";
 import { LpLockedBar, SafetyBadge } from "@/components/SafetyBadge";
 import { Sparkline } from "@/components/Sparkline";
@@ -111,6 +112,9 @@ export function NewPoolsTable({ rows }: { rows: PoolRow[] }) {
               <Num value={r.volume30m} format={fmtUsd} className="text-fg-dim" />
             </td>
             <td className="px-2">
+              <KolNames row={r} />
+            </td>
+            <td className="px-2">
               <span
                 className={`tnum block text-right ${
                   r.sampleCount >= 5 ? "text-fg-faint" : "text-warn"
@@ -170,7 +174,7 @@ export function NewPoolsTable({ rows }: { rows: PoolRow[] }) {
         <thead className="sticky top-0 z-10 bg-surface">
           <tr className="text-[9px] uppercase tracking-wide text-fg-faint">
             <th colSpan={2} className="border-b border-line px-2 pt-1.5 text-left" />
-            <th colSpan={6} className="border-b border-line px-2 pt-1.5 text-left text-up">
+            <th colSpan={7} className="border-b border-line px-2 pt-1.5 text-left text-up">
               ça imprime ?
             </th>
             <th colSpan={4} className="border-b border-line border-l px-2 pt-1.5 text-left text-warn">
@@ -185,6 +189,7 @@ export function NewPoolsTable({ rows }: { rows: PoolRow[] }) {
             <th className="w-[72px] px-2 py-1.5 text-left">Tendance</th>
             <th className="w-[74px] px-2 py-1.5 text-right">TVL</th>
             <th className="w-[74px] px-2 py-1.5 text-right">Vol 30m</th>
+            <th className="w-[96px] px-2 py-1.5 text-left" title="traders connus détenant le token">KOL</th>
             <th className="w-[40px] px-2 py-1.5 text-right" title="nombre d'échantillons">
               n
             </th>

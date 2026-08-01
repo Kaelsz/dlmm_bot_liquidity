@@ -39,10 +39,12 @@ export async function GET(req: Request): Promise<NextResponse<PoolsResponse>> {
 
   const db = getDb();
   const rows = db.leaderboard(filters);
-  const rug = db.rugcheckFor(riskyMintsOf(rows));
+  const mints = riskyMintsOf(rows);
+  const rug = db.rugcheckFor(mints);
+  const kol = db.kolFor(mints);
 
   return NextResponse.json(
-    { rows: toPoolRows(rows, rug), generatedAt: Date.now(), counts: db.counts() },
+    { rows: toPoolRows(rows, rug, kol), generatedAt: Date.now(), counts: db.counts() },
     { headers: { "cache-control": "no-store" } },
   );
 }

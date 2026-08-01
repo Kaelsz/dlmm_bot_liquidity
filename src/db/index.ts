@@ -5,7 +5,17 @@ import { config } from "@/config";
 import { MIGRATIONS, SCHEMA } from "@/db/schema.sql";
 import type { DerivedMetrics } from "@/data/metrics";
 import type { RugcheckReport } from "@/data/rugcheck";
+import type { KolScan } from "@/data/kol";
 import type { PoolView } from "@/types/meteora";
+
+export interface KolRow {
+  mint: string;
+  scannedAt: number;
+  kolCount: number;
+  totalHolders: number;
+  holdersJson: string;
+  unavailable: number;
+}
 
 export interface RugcheckRow {
   mint: string;
@@ -419,6 +429,70 @@ export class RadarDb {
            FROM rugcheck WHERE mint IN (${mints.map(() => "?").join(",")})`,
       )
       .all(...mints) as RugcheckRow[];
+    for (const r of rows) out.set(r.mint, r);
+    return out;
+  }
+
+  // ---- KOL ---------------------------------------------------------------
+
+  private static readonly UPSERT_KOL = `
+    INSERT INTO token_kol (mint, scanned_at, kol_count, total_holders, holders_json, unavailable)
+    VALUES (@mint, @scannedAt, @kolCount, @totalHolders, @holders, @unavailable)
+    ON CONFLICT(mint) DO UPDATE SET
+      scanned_at = @scannedAt, kol_count = @kolCount,
+      total_holders = @totalHolders, holders_json = @holders,
+      unavailable = @unavailable
+  `;
+
+  upsertKolScan(s: KolScan): void {
+    this.stmt(RadarDb.UPSERT_KOL).run({
+      mint: s.mint,
+      scannedAt: s.scannedAt,
+      kolCount: s.holders.length,
+      totalHolders: s.totalHolders,
+      holders: JSON.stringify(s.holders),
+      unavailable: s.unavailable ? 1 : 0,
+    });
+  }
+
+  /**
+   * Mints due for a KOL scan, in the given order.
+   *
+   * Callers pass a per-mint TTL because a pool minted ten minutes ago deserves
+   * a far shorter one than a year-old pair: on a launch, a KOL arriving is the
+   * entire signal, whereas rescanning mature tokens every cycle would spend
+   * the credit budget on information that does not move.
+   */
+  mintsNeedingKolScan(candidates: Array<{ mint: string; ttlMs: number }>, limit: number): string[] {
+    if (candidates.length === 0) return [];
+    const mints = candidates.map((c) => c.mint);
+    const rows = this.db
+      .prepare(
+        `SELECT mint, scanned_at AS scannedAt FROM token_kol
+          WHERE mint IN (${mints.map(() => "?").join(",")})`,
+      )
+      .all(...mints) as Array<{ mint: string; scannedAt: number }>;
+    const lastScan = new Map(rows.map((r) => [r.mint, r.scannedAt]));
+    const now = Date.now();
+    const out: string[] = [];
+    for (const c of candidates) {
+      const at = lastScan.get(c.mint);
+      if (at === undefined || now - at >= c.ttlMs) out.push(c.mint);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  kolFor(mints: string[]): Map<string, KolRow> {
+    const out = new Map<string, KolRow>();
+    if (mints.length === 0) return out;
+    const rows = this.db
+      .prepare(
+        `SELECT mint, scanned_at AS scannedAt, kol_count AS kolCount,
+                total_holders AS totalHolders, holders_json AS holdersJson, unavailable
+           FROM token_kol WHERE mint IN (${mints.map(() => "?").join(",")})`,
+      )
+      .all(...mints) as KolRow[];
     for (const r of rows) out.set(r.mint, r);
     return out;
   }

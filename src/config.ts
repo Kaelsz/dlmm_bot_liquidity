@@ -87,6 +87,32 @@ export const config = {
     maxLookupsPerCycle: 12,
   },
 
+  helius: {
+    /** Never hardcoded. Lives in .env.local, which is gitignored. */
+    apiKey: process.env.HELIUS_API_KEY ?? "",
+    rpcUrl: (key: string) => `https://mainnet.helius-rpc.com/?api-key=${key}`,
+    /** Deliberately gentle; the free tier is metered by credits, not just rate. */
+    maxReqPerSec: 5,
+    requestTimeoutMs: 15_000,
+    /** Holder pages to walk per token. 1000 owners is plenty to find a KOL. */
+    maxHolderPages: 2,
+    holderPageSize: 1000,
+  },
+
+  kol: {
+    /**
+     * How long a token's KOL scan stays fresh. Short for young pools, where a
+     * KOL entering is the whole point; long for the rest, where re-scanning
+     * every cycle would burn the credit budget for almost no new information.
+     */
+    freshTtlMs: 5 * 60_000,
+    matureTtlMs: 60 * 60_000,
+    /** A pool older than this uses the long TTL. */
+    youngPoolMaxAgeMs: 6 * 3_600_000,
+    /** Tokens scanned per collector cycle. */
+    maxScansPerCycle: 8,
+  },
+
   /**
    * Display defaults. These are NOT hard filters like the old bot's — the UI
    * exposes them and the collector stores everything it sees.
