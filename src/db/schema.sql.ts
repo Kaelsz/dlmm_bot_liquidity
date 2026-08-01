@@ -18,6 +18,19 @@
  * separately and the "duplicate column" error is swallowed — SQLite has no
  * `ADD COLUMN IF NOT EXISTS`.
  */
+/**
+ * Tables whose shape changed incompatibly and which hold nothing worth
+ * keeping. `CREATE TABLE IF NOT EXISTS` leaves an existing table alone, so an
+ * old database would keep the previous columns and every insert would fail on
+ * a NOT NULL that no longer exists in the code.
+ *
+ * Only ever list pure caches here — anything rebuilt from scratch on a timer.
+ * `token_kol` qualifies: it is regenerated in full on every index pass.
+ */
+export const DROP_IF_STALE: Array<{ table: string; ifColumnExists: string }> = [
+  { table: "token_kol", ifColumnExists: "scanned_at" },
+];
+
 export const MIGRATIONS: string[] = [
   "ALTER TABLE pools ADD COLUMN token_y_holders INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE pools ADD COLUMN token_y_verified INTEGER NOT NULL DEFAULT 0",

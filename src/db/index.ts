@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { config } from "@/config";
-import { MIGRATIONS, SCHEMA } from "@/db/schema.sql";
+import { DROP_IF_STALE, MIGRATIONS, SCHEMA } from "@/db/schema.sql";
 import type { DerivedMetrics } from "@/data/metrics";
 import type { RugcheckReport } from "@/data/rugcheck";
 import type { KolHolder } from "@/data/kol";
@@ -110,6 +110,18 @@ export class RadarDb {
     this.db = new Database(path);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("synchronous = NORMAL");
+    // Drop caches whose shape no longer matches, before the schema recreates them.
+    for (const { table, ifColumnExists } of DROP_IF_STALE) {
+      try {
+        const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+        if (cols.some((c) => c.name === ifColumnExists)) {
+          this.db.exec(`DROP TABLE ${table}`);
+        }
+      } catch {
+        // Table absent on a fresh database — nothing to drop.
+      }
+    }
+
     this.db.exec(SCHEMA);
     for (const sql of MIGRATIONS) {
       try {
