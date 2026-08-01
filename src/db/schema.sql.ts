@@ -12,6 +12,19 @@
  *     request is 100 queries. The collector writes this table once per cycle
  *     so the read path is a single indexed SELECT.
  */
+/**
+ * Columns added after the first release. `CREATE TABLE IF NOT EXISTS` cannot
+ * add them to a database that already exists, so they are ALTERed in
+ * separately and the "duplicate column" error is swallowed — SQLite has no
+ * `ADD COLUMN IF NOT EXISTS`.
+ */
+export const MIGRATIONS: string[] = [
+  "ALTER TABLE pools ADD COLUMN token_y_holders INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE pools ADD COLUMN token_y_verified INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE pools ADD COLUMN token_y_freeze_disabled INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE pools ADD COLUMN token_y_market_cap REAL NOT NULL DEFAULT 0",
+];
+
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS pools (
   address                   TEXT PRIMARY KEY,
@@ -27,6 +40,10 @@ CREATE TABLE IF NOT EXISTS pools (
   token_y_mint              TEXT NOT NULL,
   token_y_symbol            TEXT NOT NULL,
   token_y_decimals          INTEGER NOT NULL DEFAULT 0,
+  token_y_holders           INTEGER NOT NULL DEFAULT 0,
+  token_y_verified          INTEGER NOT NULL DEFAULT 0,
+  token_y_freeze_disabled   INTEGER NOT NULL DEFAULT 0,
+  token_y_market_cap        REAL NOT NULL DEFAULT 0,
   bin_step                  INTEGER,
   base_fee_pct              REAL NOT NULL DEFAULT 0,
   collect_fee_mode          INTEGER NOT NULL DEFAULT 0,

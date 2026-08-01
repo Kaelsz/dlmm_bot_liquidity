@@ -28,9 +28,10 @@ export interface PoolRow {
   createdAt: number;
   isBlacklisted: boolean;
   launchpad: string | null;
-  tokenXHolders: number;
-  tokenXVerified: boolean;
-  tokenXFreezeDisabled: boolean;
+  /** Attributes of the risky side — never of whichever token happens to be x. */
+  holders: number;
+  verified: boolean;
+  freezeDisabled: boolean;
   ts: number;
   feeRateUsdMin: number;
   heatPctHr: number;
@@ -77,6 +78,7 @@ export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {
       // Same reasoning: degrade one field, not the response.
     }
   }
+  const riskyIsX = riskyMintOf(r) === r.tokenXMint;
   const report = rug
     ? {
         mint: rug.mint,
@@ -100,9 +102,9 @@ export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {
     createdAt: r.createdAt,
     isBlacklisted: r.isBlacklisted === 1,
     launchpad: r.launchpad,
-    tokenXHolders: r.tokenXHolders,
-    tokenXVerified: r.tokenXVerified === 1,
-    tokenXFreezeDisabled: r.tokenXFreezeDisabled === 1,
+    holders: riskyIsX ? r.tokenXHolders : r.tokenYHolders,
+    verified: (riskyIsX ? r.tokenXVerified : r.tokenYVerified) === 1,
+    freezeDisabled: (riskyIsX ? r.tokenXFreezeDisabled : r.tokenYFreezeDisabled) === 1,
     ts: r.ts,
     feeRateUsdMin: r.feeRateUsdMin,
     heatPctHr: r.heatPctHr,

@@ -234,15 +234,15 @@ function SafetyIcons({ row }: { row: PoolRow }) {
       glyph: "⛔",
     },
     {
-      ok: row.tokenXFreezeDisabled ? true : false,
-      label: row.tokenXFreezeDisabled
+      ok: row.freezeDisabled ? true : false,
+      label: row.freezeDisabled
         ? "freeze authority désactivée"
         : "freeze authority ACTIVE — le token peut être gelé",
       glyph: "❄",
     },
     {
-      ok: row.tokenXHolders >= 500 ? true : row.tokenXHolders > 0 ? false : null,
-      label: `${fmtInt(row.tokenXHolders)} holders`,
+      ok: row.holders >= 500 ? true : row.holders > 0 ? false : null,
+      label: `${fmtInt(row.holders)} holders`,
       glyph: "👥",
     },
   ];
@@ -259,7 +259,7 @@ function SafetyIcons({ row }: { row: PoolRow }) {
           {it.ok === false ? it.glyph : "·"}
         </span>
       ))}
-      {row.tokenXVerified ? (
+      {row.verified ? (
         <span title="token vérifié" className="text-[10px] leading-none text-accent">
           ✓
         </span>

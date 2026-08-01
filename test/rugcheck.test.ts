@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isTrustedMint, verdictOf, type RugcheckReport } from "../src/data/rugcheck";
 import { config } from "../src/config";
+import { riskyMintOf } from "../src/lib/api-types";
 
 const report = (over: Partial<RugcheckReport> = {}): RugcheckReport => ({
   mint: "mint",
@@ -59,5 +60,24 @@ describe("isTrustedMint", () => {
 
   it("does not trust anything else", () => {
     expect(isTrustedMint("HhMq9vuWEntyUXFLv25xG2o3d2m8gJ1jdxtjG2J6pump")).toBe(false);
+  });
+});
+
+describe("riskyMintOf", () => {
+  const SOL = "So11111111111111111111111111111111111111112";
+  const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+  const TOKEN = "HhMq9vuWEntyUXFLv25xG2o3d2m8gJ1jdxtjG2J6pump";
+
+  it("picks token_y when token_x is the quote", () => {
+    // SOL-CTO: Meteora does not normalise the order.
+    expect(riskyMintOf({ tokenXMint: SOL, tokenYMint: TOKEN })).toBe(TOKEN);
+  });
+
+  it("picks token_x in the usual orientation", () => {
+    expect(riskyMintOf({ tokenXMint: TOKEN, tokenYMint: SOL })).toBe(TOKEN);
+  });
+
+  it("falls back to token_x when both sides are trusted", () => {
+    expect(riskyMintOf({ tokenXMint: SOL, tokenYMint: USDC })).toBe(SOL);
   });
 });

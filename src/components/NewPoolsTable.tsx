@@ -131,23 +131,23 @@ export function NewPoolsTable({ rows }: { rows: PoolRow[] }) {
             <td className="px-2">
               <span
                 className={`tnum block text-right ${
-                  r.tokenXHolders >= 500 ? "text-fg-dim" : "text-warn"
+                  r.holders >= 500 ? "text-fg-dim" : "text-warn"
                 }`}
-                title={`${fmtInt(r.tokenXHolders)} holders`}
+                title={`${fmtInt(r.holders)} holders`}
               >
-                {fmtInt(r.tokenXHolders)}
+                {fmtInt(r.holders)}
               </span>
             </td>
             <td className="px-2">
               <span
                 className="text-[10px]"
                 title={
-                  r.tokenXFreezeDisabled
+                  r.freezeDisabled
                     ? "freeze authority désactivée"
                     : "freeze authority ACTIVE — le token peut être gelé"
                 }
               >
-                {r.tokenXFreezeDisabled ? (
+                {r.freezeDisabled ? (
                   <span className="text-fg-faint opacity-30">·</span>
                 ) : (
                   <span className="text-down">❄</span>

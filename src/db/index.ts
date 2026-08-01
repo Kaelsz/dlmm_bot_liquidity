@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { config } from "@/config";
-import { SCHEMA } from "@/db/schema.sql";
+import { MIGRATIONS, SCHEMA } from "@/db/schema.sql";
 import type { DerivedMetrics } from "@/data/metrics";
 import type { RugcheckReport } from "@/data/rugcheck";
 import type { PoolView } from "@/types/meteora";
@@ -33,6 +33,9 @@ export interface LeaderboardRow {
   tokenXHolders: number;
   tokenXVerified: number;
   tokenXFreezeDisabled: number;
+  tokenYHolders: number;
+  tokenYVerified: number;
+  tokenYFreezeDisabled: number;
   ts: number;
   feeRateUsdMin: number;
   heatPctHr: number;
@@ -73,6 +76,9 @@ const LEADERBOARD_SELECT = `
     p.token_x_holders AS tokenXHolders,
     p.token_x_verified AS tokenXVerified,
     p.token_x_freeze_disabled AS tokenXFreezeDisabled,
+    p.token_y_holders AS tokenYHolders,
+    p.token_y_verified AS tokenYVerified,
+    p.token_y_freeze_disabled AS tokenYFreezeDisabled,
     m.ts, m.fee_rate_usd_min AS feeRateUsdMin, m.heat_pct_hr AS heatPctHr,
     m.fee_accel AS feeAccel, m.hot_streak AS hotStreak,
     m.sample_count AS sampleCount, m.sparkline_json AS sparklineJson,
@@ -98,6 +104,14 @@ export class RadarDb {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("synchronous = NORMAL");
     this.db.exec(SCHEMA);
+    for (const sql of MIGRATIONS) {
+      try {
+        this.db.exec(sql);
+      } catch {
+        // Already applied. SQLite offers no ADD COLUMN IF NOT EXISTS, and
+        // probing pragma_table_info for each column costs more than this.
+      }
+    }
   }
 
   private stmt(sql: string): Database.Statement {
@@ -116,14 +130,16 @@ export class RadarDb {
       address, protocol, name,
       token_x_mint, token_x_symbol, token_x_decimals, token_x_holders,
       token_x_verified, token_x_freeze_disabled, token_x_market_cap,
-      token_y_mint, token_y_symbol, token_y_decimals,
+      token_y_mint, token_y_symbol, token_y_decimals, token_y_holders,
+      token_y_verified, token_y_freeze_disabled, token_y_market_cap,
       bin_step, base_fee_pct, collect_fee_mode, created_at,
       first_seen_at, last_seen_at, is_blacklisted, launchpad, tags
     ) VALUES (
       @address, @protocol, @name,
       @tokenXMint, @tokenXSymbol, @tokenXDecimals, @tokenXHolders,
       @tokenXVerified, @tokenXFreezeDisabled, @tokenXMarketCap,
-      @tokenYMint, @tokenYSymbol, @tokenYDecimals,
+      @tokenYMint, @tokenYSymbol, @tokenYDecimals, @tokenYHolders,
+      @tokenYVerified, @tokenYFreezeDisabled, @tokenYMarketCap,
       @binStep, @baseFeePct, @collectFeeMode, @createdAt,
       @now, @now, @isBlacklisted, @launchpad, @tags
     )
@@ -133,6 +149,8 @@ export class RadarDb {
       base_fee_pct = @baseFeePct,
       token_x_holders = @tokenXHolders,
       token_x_market_cap = @tokenXMarketCap,
+      token_y_holders = @tokenYHolders,
+      token_y_market_cap = @tokenYMarketCap,
       is_blacklisted = @isBlacklisted
   `;
 
@@ -151,6 +169,10 @@ export class RadarDb {
       tokenYMint: p.tokenY.address,
       tokenYSymbol: p.tokenY.symbol,
       tokenYDecimals: p.tokenY.decimals,
+      tokenYHolders: p.tokenY.holders,
+      tokenYVerified: p.tokenY.is_verified ? 1 : 0,
+      tokenYFreezeDisabled: p.tokenY.freeze_authority_disabled ? 1 : 0,
+      tokenYMarketCap: p.tokenY.market_cap,
       binStep: p.binStep ?? null,
       baseFeePct: p.baseFeePct,
       collectFeeMode: p.collectFeeMode,
