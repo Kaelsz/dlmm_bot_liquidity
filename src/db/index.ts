@@ -53,6 +53,12 @@ export interface LeaderboardFilters {
 
 export class RadarDb {
   readonly db: Database.Database;
+  /**
+   * Statements are prepared on first use rather than in the constructor:
+   * class field initialisers run before the constructor body, so anything
+   * touching `this.db` there would see it uninitialised.
+   */
+  private readonly stmtCache = new Map<string, Database.Statement>();
 
   constructor(path = config.storage.dbPath) {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
@@ -62,9 +68,18 @@ export class RadarDb {
     this.db.exec(SCHEMA);
   }
 
+  private stmt(sql: string): Database.Statement {
+    let s = this.stmtCache.get(sql);
+    if (!s) {
+      s = this.db.prepare(sql);
+      this.stmtCache.set(sql, s);
+    }
+    return s;
+  }
+
   // ---- writes ------------------------------------------------------------
 
-  private readonly upsertPoolStmt = this.db.prepare(`
+  private static readonly UPSERT_POOL = `
     INSERT INTO pools (
       address, protocol, name,
       token_x_mint, token_x_symbol, token_x_decimals, token_x_holders,
@@ -87,10 +102,10 @@ export class RadarDb {
       token_x_holders = @tokenXHolders,
       token_x_market_cap = @tokenXMarketCap,
       is_blacklisted = @isBlacklisted
-  `);
+  `;
 
   upsertPool(p: PoolView, now = Date.now()): void {
-    this.upsertPoolStmt.run({
+    this.stmt(RadarDb.UPSERT_POOL).run({
       address: p.address,
       protocol: p.protocol,
       name: p.name,
@@ -115,7 +130,7 @@ export class RadarDb {
     });
   }
 
-  private readonly insertSampleStmt = this.db.prepare(`
+  private static readonly INSERT_SAMPLE = `
     INSERT INTO pool_samples (
       pool_address, ts, tvl, price, cum_fees_usd, cum_volume_usd,
       fees_30m, volume_30m, fee_tvl_30m_pct,
@@ -125,10 +140,10 @@ export class RadarDb {
       @fees30m, @volume30m, @feeTvl30mPct,
       @reserveX, @reserveY, @source
     )
-  `);
+  `;
 
   insertSample(p: PoolView, ts: number, source: string): void {
-    this.insertSampleStmt.run({
+    this.stmt(RadarDb.INSERT_SAMPLE).run({
       poolAddress: p.address,
       ts,
       tvl: p.tvl,
@@ -144,7 +159,7 @@ export class RadarDb {
     });
   }
 
-  private readonly upsertMetricsStmt = this.db.prepare(`
+  private static readonly UPSERT_METRICS = `
     INSERT INTO pool_metrics (
       pool_address, ts, fee_rate_usd_min, heat_pct_hr, fee_accel,
       peak_rate_usd_min, hot_streak, sample_count, sparkline_json,
@@ -165,11 +180,11 @@ export class RadarDb {
       fee_tvl_30m_pct = @feeTvl30mPct, fee_tvl_24h_pct = @feeTvl24hPct,
       dynamic_fee_pct = @dynamicFeePct, apy_pct = @apyPct,
       reserve_x_amount = @reserveX, reserve_y_amount = @reserveY
-  `);
+  `;
 
   upsertMetrics(p: PoolView, m: DerivedMetrics, ts: number, sparklinePoints: number): void {
     const series = m.rateSeries.slice(-sparklinePoints);
-    this.upsertMetricsStmt.run({
+    this.stmt(RadarDb.UPSERT_METRICS).run({
       poolAddress: p.address,
       ts,
       feeRate: m.feeRateUsdPerMin,

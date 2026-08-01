@@ -1,0 +1,150 @@
+@import "tailwindcss";
+
+/*
+ * Dense trading terminal.
+ *
+ * The brief: scan a hundred rows at a glance. That dictates everything here —
+ * 28px rows, 12px body text, tabular numerals so digits line up in a column,
+ * and colour spent almost exclusively on signal. Chrome is near-monochrome so
+ * that a hot pool is the only thing on screen that is bright.
+ */
+
+@theme {
+  /* Surfaces, darkest to lightest. */
+  --color-app: #08090b;
+  --color-surface: #0e1013;
+  --color-raised: #14171c;
+  --color-hover: #191d24;
+
+  /* Borders. */
+  --color-line: #1c2027;
+  --color-line-strong: #262c35;
+
+  /* Text. */
+  --color-fg: #e8eaed;
+  --color-fg-dim: #9aa1ac;
+  --color-fg-faint: #5c636e;
+
+  /* Signal. */
+  --color-up: #2bd97c;
+  --color-down: #ff4d5e;
+  --color-warn: #ffb020;
+  --color-accent: #00d9ff;
+
+  /* Thermal scale — background then foreground for each tier. */
+  --color-heat-inert-bg: #1c2027;
+  --color-heat-inert-fg: #6b727d;
+  --color-heat-cool-bg: #14304a;
+  --color-heat-cool-fg: #4a9eff;
+  --color-heat-warm-bg: #0e3d3a;
+  --color-heat-warm-fg: #2bd97c;
+  --color-heat-hot-bg: #3d3410;
+  --color-heat-hot-fg: #ffb020;
+  --color-heat-blazing-bg: #4a2410;
+  --color-heat-blazing-fg: #ff7a2b;
+  --color-heat-nuclear-bg: #4a1420;
+  --color-heat-nuclear-fg: #ff4d5e;
+
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+
+  /* One row height, referenced by the virtualiser. */
+  --spacing-row: 28px;
+}
+
+html,
+body {
+  background: var(--color-app);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Digits must never shift width, or every column jitters on each tick. */
+.tnum {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Scrollbars, kept out of the way. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-app);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border: 2px solid var(--color-app);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #38404c;
+}
+
+/*
+ * Value change feedback. Applied for one frame-batch by <Num>, then removed —
+ * a brief tint is legible at a glance without the row ever moving.
+ */
+@keyframes flash-up {
+  0% {
+    background-color: color-mix(in srgb, var(--color-up) 26%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+@keyframes flash-down {
+  0% {
+    background-color: color-mix(in srgb, var(--color-down) 26%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.flash-up {
+  animation: flash-up 420ms ease-out;
+}
+.flash-down {
+  animation: flash-down 420ms ease-out;
+}
+
+/* A pool entering the table for the first time. */
+@keyframes row-enter {
+  0% {
+    background-color: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.row-enter {
+  animation: row-enter 1200ms ease-out;
+}
+
+/* Reserved for the top thermal tier, so the eye is pulled to it. */
+@keyframes nuclear-pulse {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-down) 45%, transparent);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-down) 12%, transparent);
+  }
+}
+.nuclear-pulse {
+  animation: nuclear-pulse 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash-up,
+  .flash-down,
+  .row-enter,
+  .nuclear-pulse {
+    animation: none;
+  }
+}
