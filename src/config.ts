@@ -101,13 +101,30 @@ export const config = {
 
   kol: {
     /**
-     * Full rebuild of the mint -> KOLs index. Cost is fixed — two requests per
-     * wallet in the list, whatever the market is doing — so the only tradeoff
-     * is freshness against credits. Ten minutes means a KOL entering a pool is
-     * visible within ten, which is the right granularity for a signal that is
-     * about attention rather than execution.
+     * Full rebuild of the mint -> KOLs index.
+     *
+     * COST, because this is by far the biggest consumer of Helius credits and
+     * the arithmetic is not obvious. One pass is
+     *
+     *     553 wallets x 2 token programs = ~1100 requests
+     *
+     * so the daily total is 1100 x (1440 / interval_in_minutes):
+     *
+     *     every 10 min -> ~159 000/day  (~4.8M/month — well past a free tier)
+     *     every 30 min -> ~53 000/day   (~1.6M/month)
+     *     every 60 min -> ~26 000/day   (~800k/month)
+     *
+     * 30 minutes is the default because the signal is about attention, not
+     * execution: knowing within half an hour that a KOL took a position is
+     * enough to go and look. Lower it if your quota allows, and watch
+     * /api/health, which reports the projected daily figure.
      */
-    refreshIntervalMs: num(process.env.KOL_REFRESH_INTERVAL_MS, 10 * 60_000),
+    refreshIntervalMs: num(process.env.KOL_REFRESH_INTERVAL_MS, 30 * 60_000),
+    /**
+     * Query the Token-2022 program as well. It doubles the request count and
+     * almost no memecoin uses it, so it is worth turning off on a tight quota.
+     */
+    includeToken2022: (process.env.KOL_TOKEN_2022 ?? "on") !== "off",
     /** Parallel wallet lookups. The token bucket still caps the actual rate. */
     concurrency: 8,
   },

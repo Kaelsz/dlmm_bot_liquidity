@@ -79,8 +79,12 @@ async function holdingsOf(wallet: string): Promise<Map<string, number> | undefin
   const held = new Map<string, number>();
 
   // Token-2022 lives in a separate program and is invisible to a query on the
-  // original one, so both are asked.
-  for (const programId of [SPL_TOKEN_PROGRAM, TOKEN_2022_PROGRAM]) {
+  // original one. It doubles the request count for a standard that almost no
+  // memecoin uses, so it can be switched off on a tight quota.
+  const programs = config.kol.includeToken2022
+    ? [SPL_TOKEN_PROGRAM, TOKEN_2022_PROGRAM]
+    : [SPL_TOKEN_PROGRAM];
+  for (const programId of programs) {
     await limiter.acquire();
     try {
       const res = await fetch(url, {
@@ -132,6 +136,11 @@ export interface KolIndex {
  * hold. Runs with modest concurrency so a full refresh takes tens of seconds
  * rather than minutes, while the token bucket keeps the request rate gentle.
  */
+/** Requests one full pass costs — surfaced on /api/health for quota planning. */
+export function requestsPerPass(): number {
+  return LIST.wallets.length * (config.kol.includeToken2022 ? 2 : 1);
+}
+
 export async function buildKolIndex(): Promise<KolIndex> {
   const byMint = new Map<string, KolHolder[]>();
   let scanned = 0;
