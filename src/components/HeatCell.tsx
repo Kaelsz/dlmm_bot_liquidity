@@ -1,7 +1,6 @@
 "use client";
 
 import { heatTier, type HeatTier } from "@/data/metrics";
-import { fmtPct } from "@/lib/format";
 
 /**
  * The hero cell. Heat is fees paid out per hour as a percentage of TVL, so it
@@ -30,14 +29,28 @@ const TIER_LABEL: Record<HeatTier, string> = {
   nuclear: "extrême",
 };
 
+/**
+ * Precision follows magnitude. A flat one-decimal format collapses everything
+ * below 0.05 %/h to "0.0 %", which throws away the distinction between a pool
+ * earning nothing and one earning a little — and at this scale most of the
+ * market sits there.
+ */
+function fmtHeat(v: number): string {
+  if (!Number.isFinite(v) || v <= 0) return "—";
+  if (v < 0.01) return "<0,01 %";
+  if (v < 1) return `${v.toFixed(2).replace(".", ",")} %`;
+  if (v < 100) return `${v.toFixed(1).replace(".", ",")} %`;
+  return `${Math.round(v)} %`;
+}
+
 export function HeatCell({ value }: { value: number }) {
   const tier = heatTier(value);
   return (
     <div
-      title={`${TIER_LABEL[tier]} — ${value.toFixed(2)} % du TVL versé en fees par heure`}
+      title={`${TIER_LABEL[tier]} — ${value.toFixed(3)} % du TVL versé en fees par heure`}
       className={`tnum flex h-[22px] items-center justify-end rounded-[3px] px-1.5 font-semibold transition-colors duration-500 ${TIER_CLASS[tier]}`}
     >
-      {fmtPct(value, 1)}
+      {fmtHeat(value)}
     </div>
   );
 }
