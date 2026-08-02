@@ -1,24 +1,33 @@
-# Frontal de Meteora Pool Radar — accès par IP, sans nom de domaine.
+# Frontal de Meteora Pool Radar.
 #
-# Sans domaine, Let's Encrypt ne peut rien émettre : `tls internal` fait signer
-# le certificat par l'autorité interne de Caddy. Le navigateur affichera un
-# avertissement à accepter une fois — ce n'est pas une erreur de configuration.
-# Le gain est réel : le mot de passe ne transite pas en clair, ce qui serait le
-# cas en HTTP nu.
+# L'adresse du site est `RADAR_SITE` (dans .env), typiquement
+# `https://<ip publique>` — ou `https://radar.mondomaine.fr` si un domaine
+# pointe sur la machine. scripts/deploy.sh la renseigne.
 #
-# `basic_auth` (et non `basicauth`) : la directive a été renommée en Caddy 2.8.
-# L'image est épinglée au-delà dans docker-compose.yml.
+# Elle DOIT contenir un hôte : Caddy n'active l'HTTPS automatique que s'il
+# connaît un nom de domaine ou une adresse IP. Un `:443` nu fait écouter le
+# port sans jamais émettre de certificat, et la poignée de main TLS échoue —
+# le navigateur n'affiche alors rien du tout, même pas l'avertissement.
 #
-# Les deux valeurs viennent de .env via une substitution au chargement `{$VAR}`,
-# et non `{env.VAR}` : basic_auth est analysé au chargement de la config, où le
-# placeholder d'exécution n'est pas encore résolu.
+# Avec une IP, `tls internal` fait signer par l'autorité interne de Caddy
+# (certificat avec SAN IP). Le navigateur avertit sur l'autorité inconnue :
+# c'est attendu, à accepter une fois. Le trafic est chiffré, donc le mot de
+# passe ne circule pas en clair. Avec un vrai domaine, retirer `tls internal`
+# suffit à basculer sur Let's Encrypt.
+#
+# `basic_auth` (et non `basicauth`) : renommé en Caddy 2.8, image épinglée
+# au-delà dans docker-compose.yml.
+#
+# Les valeurs sont injectées par substitution au chargement `{$VAR}` et non
+# `{env.VAR}` : basic_auth est analysé au chargement, où le placeholder
+# d'exécution n'est pas encore résolu.
 
 {
-	# Pas de domaine, donc pas de redirection HTTP->HTTPS à gérer.
+	# Le port 80 n'est pas publié par docker-compose : pas de redirection.
 	auto_https disable_redirects
 }
 
-:443 {
+{$RADAR_SITE} {
 	tls internal
 
 	basic_auth {

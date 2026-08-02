@@ -12,12 +12,15 @@
 #   --check   préflight seul, n'installe et ne modifie rien
 #   --dir D   répertoire d'installation (défaut : ~/radar)
 #   --user U  identifiant HTTP (défaut : radar)
+#   --site S  adresse publique servie par Caddy, ex. https://203.0.113.5 ou
+#             https://radar.mondomaine.fr. Détectée automatiquement sinon.
 
 set -euo pipefail
 
 REPO_URL="https://github.com/Kaelsz/dlmm_bot_liquidity.git"
 INSTALL_DIR="${HOME}/radar"
 HTTP_USER="radar"
+SITE=""
 CHECK_ONLY=0
 HEALTH_TIMEOUT=180
 
@@ -34,7 +37,8 @@ while [ $# -gt 0 ]; do
     --check) CHECK_ONLY=1; shift ;;
     --dir)   INSTALL_DIR="${2:?--dir attend un chemin}"; shift 2 ;;
     --user)  HTTP_USER="${2:?--user attend un identifiant}"; shift 2 ;;
-    -h|--help) sed -n '3,20p' "$0"; exit 0 ;;
+    --site)  SITE="${2:?--site attend une adresse}"; shift 2 ;;
+    -h|--help) sed -n '3,22p' "$0"; exit 0 ;;
     *) die "option inconnue : $1" ;;
   esac
 done
@@ -113,11 +117,40 @@ fi
 cd "$INSTALL_DIR"
 ok "code sur $(git rev-parse --short HEAD)"
 
+# ------------------------------------------------ adresse publique du frontal
+
+# Caddy n'émet un certificat que s'il connaît un hôte. Une adresse de site
+# vide ou réduite à ":443" le fait écouter sans certificat : la poignée de
+# main TLS échoue et le navigateur n'affiche rien. On préfère donc échouer ici,
+# bruyamment, plutôt que produire une installation muette.
+if [ -z "$SITE" ]; then
+  say "Détection de l'adresse publique"
+  DETECTED="$(curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null || true)"
+  [ -n "$DETECTED" ] || DETECTED="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  [ -n "$DETECTED" ] || die "impossible de détecter l'adresse publique. La fournir : --site https://mon.ip.ou.domaine"
+  SITE="https://${DETECTED}"
+  ok "adresse : $SITE"
+fi
+case "$SITE" in
+  https://*|http://*) : ;;
+  *) SITE="https://${SITE}" ;;
+esac
+
 # ------------------------------------------------------------------- secret
 
 GENERATED_PASSWORD=""
 if [ -f .env ] && grep -q '^RADAR_PASSWORD_HASH=' .env; then
   ok ".env existant : mot de passe conservé"
+  # Migration des installations antérieures à RADAR_SITE : compléter sans
+  # jamais réécrire le fichier, pour ne pas risquer le hash déjà en place.
+  if grep -q '^RADAR_SITE=' .env; then
+    CURRENT_SITE="$(grep '^RADAR_SITE=' .env | head -1 | cut -d= -f2-)"
+    ok "adresse du site déjà configurée : ${CURRENT_SITE}"
+    SITE="$CURRENT_SITE"
+  else
+    printf 'RADAR_SITE=%s\n' "$SITE" >> .env
+    ok "RADAR_SITE ajouté au .env existant : $SITE"
+  fi
 else
   say "Génération du mot de passe d'accès"
   GENERATED_PASSWORD="$(head -c 18 /dev/urandom | base64 | tr -d '/+=' | head -c 20)"
@@ -133,6 +166,9 @@ else
 # puis recopier la valeur ci-dessous et relancer : docker compose up -d
 RADAR_USER=${HTTP_USER}
 RADAR_PASSWORD_HASH=${HASH}
+# Adresse servie par Caddy. Doit contenir un hôte (IP ou domaine) : sans lui,
+# aucun certificat n'est émis et le HTTPS ne répond pas.
+RADAR_SITE=${SITE}
 EOF
   ok "identifiants écrits dans .env (permissions 600)"
 fi
@@ -161,6 +197,35 @@ if [ "$healthy" -ne 1 ]; then
 fi
 ok "application en ligne"
 
+# Le contrôle ci-dessus ne teste que l'app derrière le proxy. Sans ce second
+# contrôle, une erreur de configuration TLS passe inaperçue et le script
+# annonce un succès sur une installation injoignable — c'est précisément ce
+# qui s'est produit avec une adresse de site sans hôte.
+say "Vérification du frontal HTTPS"
+FRONT_CODE=""
+deadline=$(( $(date +%s) + 60 ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  FRONT_CODE="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 https://127.0.0.1/ 2>/dev/null || true)"
+  [ "$FRONT_CODE" = "000" ] || [ -z "$FRONT_CODE" ] || break
+  sleep 3
+done
+
+case "$FRONT_CODE" in
+  401)
+    ok "TLS établi et authentification active (401 attendu sans identifiants)" ;;
+  200)
+    warn "le frontal répond 200 : l'authentification ne protège rien. Vérifier basic_auth dans le Caddyfile." ;;
+  ""|000)
+    printf '\n%sLe frontal HTTPS ne répond pas.%s Journaux de Caddy :\n\n' "$RED" "$RST" >&2
+    $DOCKER compose logs --tail=40 caddy >&2 || true
+    printf '\nCause la plus fréquente : RADAR_SITE absent ou sans hôte dans .env.\n' >&2
+    printf 'Valeur actuelle : %s\n' "$(grep '^RADAR_SITE=' .env 2>/dev/null || echo '(absente)')" >&2
+    printf 'Corriger puis relancer : ./scripts/deploy.sh --site https://mon.ip\n' >&2
+    exit 1 ;;
+  *)
+    warn "le frontal répond ${FRONT_CODE} (401 attendu). L'app est en ligne, vérifier le Caddyfile." ;;
+esac
+
 # ----------------------------------------------------------------- pare-feu
 
 if command -v ufw >/dev/null 2>&1; then
@@ -174,13 +239,11 @@ fi
 
 # ------------------------------------------------------------------- sortie
 
-IP="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
-
 cat <<EOF
 
 ${GRN}${BLD}Déploiement terminé.${RST}
 
-  Adresse    ${BLD}https://${IP}/${RST}
+  Adresse     ${BLD}${SITE}/${RST}
   Identifiant ${HTTP_USER}
 EOF
 

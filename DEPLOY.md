@@ -102,23 +102,20 @@ docker compose up -d
 
 ## 3. Variante : avec un nom de domaine
 
-Si un domaine (ou sous-domaine) pointe sur l'IP du VPS, Let's Encrypt peut émettre un vrai
-certificat et l'avertissement disparaît. Remplacer le contenu du `Caddyfile` à la racine du
-projet par :
-
-```
-radar.mondomaine.fr {
-	basic_auth {
-		{$RADAR_USER} {$RADAR_PASSWORD_HASH}
-	}
-	reverse_proxy radar:3000
-}
-```
-
-puis ouvrir le port 80 (Let's Encrypt en a besoin pour la validation) et redémarrer :
+Si un domaine pointe sur l'IP du VPS, Let's Encrypt peut émettre un vrai certificat et
+l'avertissement disparaît. Il n'y a **rien à réécrire dans le `Caddyfile`** : l'adresse du site
+est une variable.
 
 ```bash
-sudo ufw allow 80/tcp
+cd ~/radar
+./scripts/deploy.sh --site https://radar.mondomaine.fr
+sudo ufw allow 80/tcp      # Let's Encrypt valide via le port 80
+```
+
+Puis retirer la ligne `tls internal` du `Caddyfile` — c'est elle qui force l'autorité interne — et
+publier le port 80 dans `docker-compose.yml` (`- "80:80"`), nécessaire à la validation :
+
+```bash
 docker compose up -d
 ```
 
@@ -305,6 +302,7 @@ irremplaçable.
 | Le mot de passe n'est jamais accepté | Le hash a été mis dans `environment:` au lieu de `env_file:` — Compose a mangé les `$` |
 | Le navigateur redemande d'accepter le certificat à chaque redémarrage | Volumes `caddy-data`/`caddy-config` absents : l'autorité interne est régénérée |
 | `connection refused` sur le port 443 | Caddy n'a pas démarré : `docker compose logs caddy` |
+| **Le port 443 accepte mais rien ne s'affiche, pas même l'avertissement de certificat** | `RADAR_SITE` absent ou sans hôte dans `.env`. Caddy n'active l'HTTPS automatique que s'il connaît une IP ou un domaine : sans ça il écoute sans certificat et la poignée de main TLS échoue. Vérifier avec `curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1/` depuis le VPS — doit répondre `401`. Corriger : `./scripts/deploy.sh --site https://mon.ip` |
 
 Variables d'ajustement dans `.env` (voir `.env.example`) : `DISCOVERY_INTERVAL_MS`,
 `NEW_POOLS_INTERVAL_MS`, `HOT_SET_INTERVAL_MS`, `COLLECTOR`, `LOG_LEVEL`, `DB_PATH`.
@@ -322,13 +320,26 @@ Ce qui a été testé directement, et ce qui ne pouvait pas l'être :
 - ✅ `scripts/deploy.sh` : `shellcheck` propre, préflight exécuté, et **le chemin d'échec vérifié**
   — démon Docker absent, le script s'arrête avec un message explicite et un code retour non nul,
   sans rien laisser à moitié installé.
+- ✅ La migration d'un `.env` existant (ajout de `RADAR_SITE` sans toucher au hash) est testée,
+  y compris son idempotence.
 - ⚠️ **Non testés faute de démon Docker** dans l'environnement de développement : la construction
-  de l'image, le démarrage de Caddy, l'émission du certificat interne, et le `basic_auth` de bout
-  en bout. La syntaxe du `Caddyfile` a été relue contre la documentation officielle
-  (`basic_auth`, renommé depuis `basicauth` en Caddy 2.8), mais `caddy validate` n'a pas pu être
-  exécuté.
-- ⚠️ Le premier `deploy.sh` sur le VPS est donc le premier essai réel. En cas d'échec, le script
-  affiche les 50 dernières lignes de journaux, et l'**option systemd (§4) est un repli vérifié**.
+  de l'image, le démarrage de Caddy et l'émission du certificat interne.
+
+### Un défaut de cette catégorie s'est effectivement matérialisé
+
+La première version du `Caddyfile` ouvrait le site sur `:443`, un port sans hôte. Caddy écoutait
+bien, mais **n'activait pas l'HTTPS automatique** — il n'émettait donc aucun certificat, et la
+poignée de main TLS échouait avant que le navigateur puisse afficher quoi que ce soit. Le port
+acceptait la connexion, ce qui rendait le symptôme trompeur : ni le pare-feu ni le conteneur
+n'étaient en cause.
+
+Deux corrections en découlent :
+
+1. l'adresse du site est désormais explicite (`RADAR_SITE`), et le script refuse de démarrer
+   plutôt que d'écrire une valeur vide ;
+2. le script vérifie maintenant **le frontal** et non plus seulement l'application — il exige un
+   `401` sur `https://127.0.0.1/`. C'est cette vérification manquante qui avait permis d'annoncer
+   « déploiement terminé » sur une installation injoignable.
 
 ### Ce qui reste vrai côté sécurité
 
