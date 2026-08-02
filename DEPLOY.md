@@ -27,68 +27,105 @@ Si la RAM est juste à 1 Go, faire le build ailleurs (voir §5) plutôt que d'aj
 
 ---
 
-## 2. Option A — Docker (recommandée)
+## 2. Installation en une commande (recommandée)
 
-### Installation
-
-```bash
-# Docker, si absent
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER   # puis se reconnecter
-
-git clone https://github.com/Kaelsz/dlmm_bot_liquidity.git radar
-cd radar
-docker compose up -d --build
-```
-
-Le premier build compile `better-sqlite3` depuis les sources : comptez 3 à 5 minutes.
-
-### Vérifier
+Le script installe Docker si besoin, récupère le code, génère un mot de passe, démarre tout et
+vérifie que l'application répond.
 
 ```bash
-docker compose ps                    # doit afficher "healthy" après ~40 s
-curl -s localhost:3000/api/health | head -c 300
+ssh ton_user@ton_vps
+curl -fsSL https://raw.githubusercontent.com/Kaelsz/dlmm_bot_liquidity/main/scripts/deploy.sh | bash
 ```
 
-La réponse doit montrer `"ok":true`, `"running":true`, et des débits sous les limites
-(`dlmmReqPerSec` < 20, `dammV2ReqPerSec` < 6). Si `errors` grimpe, voir §7.
+À la fin, il affiche l'adresse `https://<ip>/`, l'identifiant et **le mot de passe — une seule
+fois**. Seul son hash bcrypt est conservé, dans `.env`.
 
-Les sparklines et les colonnes dérivées (`Fees/min`, `Vol/min`, `Accél.`) restent **vides
-pendant les premières minutes** : elles se calculent entre deux échantillons successifs. Comptez
-~15 min pour que le tableau soit pleinement lisible.
+Options utiles :
 
-### Ce que fait `docker-compose.yml`
+```bash
+./scripts/deploy.sh --check          # préflight seul : ne modifie rien
+./scripts/deploy.sh --dir /opt/radar # autre répertoire (défaut : ~/radar)
+./scripts/deploy.sh --user florian   # autre identifiant HTTP (défaut : radar)
+```
 
-- publie sur `127.0.0.1:3000` seulement — le reverse proxy s'occupe du TLS ;
-- monte un volume nommé `radar-data` sur `/data`, où vit la base. **Sans ce volume, chaque
-  redémarrage repart de zéro** et l'historique dérivé est perdu ;
-- `stop_grace_period: 30s` : SQLite en WAL n'aime pas être tué pendant un checkpoint.
+**Relancer le script met à jour** : il fait un `git pull`, reconstruit et redémarre, sans toucher
+au mot de passe ni à la base.
+
+Le premier passage compile `better-sqlite3` depuis les sources — comptez 3 à 5 minutes.
+
+### Ce que ça met en place
+
+Deux conteneurs :
+
+- **`radar`** — l'application, publiée sur `127.0.0.1:3000` seulement. Elle n'a **aucune
+  authentification** : elle ne doit jamais être jointe directement depuis l'extérieur.
+- **`caddy`** — le frontal sur le port 443, qui porte le TLS et le mot de passe.
+
+Et trois volumes nommés : `radar-data` (la base — **sans lui, chaque redémarrage repart de
+zéro**), `caddy-data` et `caddy-config` (l'autorité de certification interne, qui doit survivre
+aux redémarrages sinon le navigateur redemande d'accepter le certificat).
+
+### L'avertissement de certificat
+
+Sans nom de domaine, aucune autorité publique ne peut signer de certificat : Caddy en émet un
+avec sa propre autorité (`tls internal`). Le navigateur affiche donc un avertissement.
+
+Ce n'est pas une erreur de configuration, et ce n'est pas non plus sans valeur : la connexion est
+bien chiffrée, ce qui protège le mot de passe en transit — contrairement à du HTTP nu. Ce qui
+n'est pas garanti, c'est l'identité du serveur. Accepter une fois suffit.
+
+Pour supprimer l'avertissement, il faut un nom de domaine : voir §3.
+
+### Vérifier à la main
+
+```bash
+cd ~/radar
+docker compose ps                                  # "healthy" après ~40 s
+curl -s localhost:3000/api/health | head -c 300     # depuis le VPS
+docker compose logs -f radar
+```
+
+`"ok":true` et `"running":true` signifient que le collecteur tourne. Les colonnes dérivées
+(`Fees/min`, `Vol/min`, `Accél.`) restent vides ~15 min : elles se calculent entre deux
+échantillons successifs.
+
+### Changer le mot de passe
+
+```bash
+cd ~/radar
+docker run --rm caddy:2-alpine caddy hash-password --plaintext 'nouveau'
+# recopier la valeur dans .env (RADAR_PASSWORD_HASH), puis :
+docker compose up -d
+```
 
 ---
 
-## 3. Reverse proxy et TLS
+## 3. Variante : avec un nom de domaine
 
-### Caddy (le plus court — certificat automatique)
-
-```bash
-sudo apt install -y caddy
-```
-
-`/etc/caddy/Caddyfile` :
+Si un domaine (ou sous-domaine) pointe sur l'IP du VPS, Let's Encrypt peut émettre un vrai
+certificat et l'avertissement disparaît. Remplacer le contenu du `Caddyfile` à la racine du
+projet par :
 
 ```
 radar.mondomaine.fr {
-    reverse_proxy 127.0.0.1:3000
+	basic_auth {
+		{$RADAR_USER} {$RADAR_PASSWORD_HASH}
+	}
+	reverse_proxy radar:3000
 }
 ```
 
+puis ouvrir le port 80 (Let's Encrypt en a besoin pour la validation) et redémarrer :
+
 ```bash
-sudo systemctl reload caddy
+sudo ufw allow 80/tcp
+docker compose up -d
 ```
 
-C'est tout : Caddy obtient et renouvelle le certificat Let's Encrypt seul.
+Caddy obtient et renouvelle le certificat seul. `basic_auth` reste utile : le dashboard n'a
+toujours aucune authentification propre.
 
-### nginx
+### nginx, si tu préfères
 
 ```nginx
 server {
@@ -119,12 +156,15 @@ entièrement par `/api/stream`.
 
 ### Pare-feu
 
+`scripts/deploy.sh` ouvre déjà 22 et 443. Avec un nom de domaine, ajouter 80 pour la validation
+Let's Encrypt :
+
 ```bash
 sudo ufw allow 22,80,443/tcp && sudo ufw enable
 ```
 
-Le port 3000 ne doit **pas** être ouvert : l'app n'a aucune authentification. Si le dashboard doit
-rester privé, ajouter un `basic_auth` Caddy ou une règle de restriction par IP.
+Le port **3000 ne doit jamais être ouvert** : c'est l'application nue, sans authentification.
+Seul Caddy doit être joignable de l'extérieur.
 
 ---
 
@@ -192,10 +232,16 @@ journalctl -u radar -f
 
 ## 5. Mettre à jour
 
-**Docker** — la base survit, elle est dans le volume :
+**Le plus simple** — relancer le script, qui est idempotent :
 
 ```bash
-cd radar && git pull && docker compose up -d --build
+~/radar/scripts/deploy.sh
+```
+
+**À la main** — la base survit, elle est dans le volume :
+
+```bash
+cd ~/radar && git pull && docker compose up -d --build
 ```
 
 **systemd** :
@@ -255,6 +301,10 @@ irremplaçable.
 | `errors` grimpe dans `/api/health` | Rate limit atteint. Augmenter `DISCOVERY_INTERVAL_MS` / `HOT_SET_INTERVAL_MS` |
 | Colonnes dérivées vides | Normal avant ~2 échantillons par pool. Attendre 15 min |
 | Base qui grossit sans fin | Ne devrait pas : la purge suit `sampleRetentionMs`. Vérifier les logs du collecteur |
+| Caddy ne démarre pas, `invalid password hash` | `RADAR_PASSWORD_HASH` contient un mot de passe en clair au lieu d'un hash bcrypt |
+| Le mot de passe n'est jamais accepté | Le hash a été mis dans `environment:` au lieu de `env_file:` — Compose a mangé les `$` |
+| Le navigateur redemande d'accepter le certificat à chaque redémarrage | Volumes `caddy-data`/`caddy-config` absents : l'autorité interne est régénérée |
+| `connection refused` sur le port 443 | Caddy n'a pas démarré : `docker compose logs caddy` |
 
 Variables d'ajustement dans `.env` (voir `.env.example`) : `DISCOVERY_INTERVAL_MS`,
 `NEW_POOLS_INTERVAL_MS`, `HOT_SET_INTERVAL_MS`, `COLLECTOR`, `LOG_LEVEL`, `DB_PATH`.
@@ -263,15 +313,28 @@ Variables d'ajustement dans `.env` (voir `.env.example`) : `DISCOVERY_INTERVAL_M
 
 ## 8. État de vérification
 
-Pour être précis sur ce qui a été testé et ce qui ne l'a pas été :
+Ce qui a été testé directement, et ce qui ne pouvait pas l'être :
 
 - ✅ **Le serveur standalone de production** (`node server.js`) démarre, sert `/` et `/nouvelles`
-  en 200, charge le module natif, fait tourner le collecteur — vérifié directement.
-- ✅ Le build Next produit bien `.next/standalone` avec le `.node` de `better-sqlite3` tracé.
+  en 200, charge le module natif et fait tourner le collecteur.
+- ✅ Le build Next trace bien le binaire `.node` de `better-sqlite3`.
 - ✅ Les migrations de schéma s'appliquent sur une base existante sans perte.
-- ⚠️ **Le `Dockerfile` et le `docker-compose.yml` n'ont pas pu être construits** : l'environnement
-  de développement a le client Docker mais pas de démon. Ils suivent la même séquence que
-  l'option B, qui est vérifiée, mais le premier `docker compose up --build` sur le VPS est le
-  premier essai réel. En cas d'échec, l'option systemd est un repli immédiat.
-- ⚠️ L'application n'a **aucune authentification**. Ne pas l'exposer publiquement sans
-  `basic_auth` ou restriction par IP.
+- ✅ `scripts/deploy.sh` : `shellcheck` propre, préflight exécuté, et **le chemin d'échec vérifié**
+  — démon Docker absent, le script s'arrête avec un message explicite et un code retour non nul,
+  sans rien laisser à moitié installé.
+- ⚠️ **Non testés faute de démon Docker** dans l'environnement de développement : la construction
+  de l'image, le démarrage de Caddy, l'émission du certificat interne, et le `basic_auth` de bout
+  en bout. La syntaxe du `Caddyfile` a été relue contre la documentation officielle
+  (`basic_auth`, renommé depuis `basicauth` en Caddy 2.8), mais `caddy validate` n'a pas pu être
+  exécuté.
+- ⚠️ Le premier `deploy.sh` sur le VPS est donc le premier essai réel. En cas d'échec, le script
+  affiche les 50 dernières lignes de journaux, et l'**option systemd (§4) est un repli vérifié**.
+
+### Ce qui reste vrai côté sécurité
+
+L'application n'a **aucune authentification propre**. Toute la protection tient au frontal Caddy :
+mot de passe et TLS. Trois règles à ne pas contourner :
+
+- ne jamais publier le port 3000 sur `0.0.0.0` ;
+- ne jamais mettre le hash dans `environment:` plutôt que `env_file:` ;
+- garder le pare-feu fermé sur tout sauf 22 et 443.

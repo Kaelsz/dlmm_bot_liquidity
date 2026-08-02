@@ -1,0 +1,36 @@
+# Frontal de Meteora Pool Radar — accès par IP, sans nom de domaine.
+#
+# Sans domaine, Let's Encrypt ne peut rien émettre : `tls internal` fait signer
+# le certificat par l'autorité interne de Caddy. Le navigateur affichera un
+# avertissement à accepter une fois — ce n'est pas une erreur de configuration.
+# Le gain est réel : le mot de passe ne transite pas en clair, ce qui serait le
+# cas en HTTP nu.
+#
+# `basic_auth` (et non `basicauth`) : la directive a été renommée en Caddy 2.8.
+# L'image est épinglée au-delà dans docker-compose.yml.
+#
+# Les deux valeurs viennent de .env via une substitution au chargement `{$VAR}`,
+# et non `{env.VAR}` : basic_auth est analysé au chargement de la config, où le
+# placeholder d'exécution n'est pas encore résolu.
+
+{
+	# Pas de domaine, donc pas de redirection HTTP->HTTPS à gérer.
+	auto_https disable_redirects
+}
+
+:443 {
+	tls internal
+
+	basic_auth {
+		{$RADAR_USER} {$RADAR_PASSWORD_HASH}
+	}
+
+	# Caddy ne bufferise pas les réponses en flux : /api/stream (SSE) passe tel
+	# quel, sans l'équivalent du `proxy_buffering off` qu'exige nginx.
+	reverse_proxy radar:3000
+
+	log {
+		output stderr
+		format console
+	}
+}
