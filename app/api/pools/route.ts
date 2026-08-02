@@ -16,7 +16,7 @@ export async function GET(req: Request): Promise<NextResponse<PoolsResponse>> {
   const q = url.searchParams;
 
   const sortParam = q.get("sort");
-  const sort = (["heat", "rate", "tvl", "volume", "age", "accel"] as const).find(
+  const sort = (["heat", "rate", "volumeRate", "tvl", "volume", "age", "accel"] as const).find(
     (s) => s === sortParam,
   );
 

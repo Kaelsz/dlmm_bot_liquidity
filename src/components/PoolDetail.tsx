@@ -191,7 +191,7 @@ export function PoolDetail({ address, onClose }: { address: string; onClose: () 
                   items={[
                     ["Heat", fmtPct(p.heatPctHr, 2) + "/h", heatTier(p.heatPctHr) !== "inert"],
                     ["Taux de fees", fmtRate(p.feeRateUsdMin) + "/min", true],
-                    ["Volume", fmtUsd(p.volumeRateUsdMin) + "/min", p.volumeRateUsdMin > 0],
+                    ["Volume", fmtRate(p.volumeRateUsdMin) + "/min", p.volumeRateUsdMin > 0],
                     ["TVL", fmtUsd(p.tvl)],
                     ["Prix", fmtPrice(p.price)],
                     ["Volume 30 m", fmtUsd(p.volume30m)],

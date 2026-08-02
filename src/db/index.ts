@@ -71,7 +71,7 @@ export interface LeaderboardFilters {
   excludeBlacklisted?: boolean;
   /** Only pools whose metrics were refreshed within this window. */
   freshWithinMs?: number;
-  sort?: "heat" | "rate" | "tvl" | "volume" | "age" | "accel";
+  sort?: "heat" | "rate" | "volumeRate" | "tvl" | "volume" | "age" | "accel";
   limit?: number;
 }
 

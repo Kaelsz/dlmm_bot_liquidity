@@ -111,7 +111,7 @@ export function NewPoolsTable({
               <Num value={r.feeRateUsdMin} format={fmtRate} className="font-semibold text-fg" />
             </td>
             <td className="px-2">
-              <Num value={r.volumeRateUsdMin} format={fmtUsd} className="text-fg-dim" />
+              <Num value={r.volumeRateUsdMin} format={fmtRate} className="text-fg-dim" />
             </td>
             <td className="px-2">
               <Sparkline points={r.sparkline} />

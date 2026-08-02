@@ -31,6 +31,7 @@ export type SortKey = "heat" | "rate" | "volumeRate" | "tvl" | "volume" | "age" 
 const SORT_FOR_COL: Partial<Record<string, SortKey>> = {
   heat: "heat",
   rate: "rate",
+  volumeRate: "volumeRate",
   accel: "accel",
   tvl: "tvl",
   volume: "volume",
@@ -128,7 +129,7 @@ export function MarketTable({
             </td>
 
             <td className="px-2">
-              <Num value={r.volumeRateUsdMin} format={fmtUsd} className="text-fg-dim" />
+              <Num value={r.volumeRateUsdMin} format={fmtRate} className="text-fg-dim" />
             </td>
 
             <td className="px-2">
