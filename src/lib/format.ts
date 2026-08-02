@@ -77,6 +77,19 @@ export function fmtSince(ts: number | null, now = Date.now()): string {
   return `il y a ${Math.round(s / 60)}min`;
 }
 
+/**
+ * Chart axis tick. Over a day or less the time of day is what locates a point;
+ * past that it is ambiguous — a 7-day axis reading `10:00, 04:00, 22:00` names
+ * no day at all — so the date takes over.
+ */
+export function fmtAxisTime(ts: number, spanMs: number): string {
+  const d = new Date(ts);
+  if (spanMs > 24 * 3_600_000) {
+    return d.toLocaleDateString(FR, { day: "2-digit", month: "2-digit" });
+  }
+  return d.toLocaleTimeString(FR, { hour: "2-digit", minute: "2-digit" });
+}
+
 /** Strips the quote suffix so the base token can be emphasised on its own. */
 export function splitPairName(name: string): { base: string; quote: string } {
   const i = name.lastIndexOf("-");

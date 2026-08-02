@@ -12,9 +12,18 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { heatTier } from "@/data/metrics";
+import { heatTier, signalCoverage, MIN_SIGNAL_COVERAGE } from "@/data/metrics";
 import { TokenLinksVerbose } from "@/components/TokenLinks";
-import { fmtAge, fmtInt, fmtPct, fmtPrice, fmtRate, fmtUsd, splitPairName } from "@/lib/format";
+import {
+  fmtAge,
+  fmtAxisTime,
+  fmtInt,
+  fmtPct,
+  fmtPrice,
+  fmtRate,
+  fmtUsd,
+  splitPairName,
+} from "@/lib/format";
 import type { PoolDetailResponse } from "@/lib/api-types";
 
 const WINDOWS = [
@@ -25,14 +34,26 @@ const WINDOWS = [
   ["30d", "30 j"],
 ] as const;
 
+const WINDOW_HOURS: Record<string, number> = { "1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720 };
+
 /**
  * Side panel for one pool.
  *
- * Two charts, deliberately stacked and sharing an x range: price on top, our
- * derived fee rate underneath. That pairing is the whole point of the panel —
- * a spike in fees that coincides with a price collapse is a very different
- * proposition from one that happens while the price holds, and no single
- * number in the table can express the difference.
+ * Two charts, stacked: price on top, our derived fee rate underneath. That
+ * pairing is the whole point of the panel — a spike in fees that coincides
+ * with a price collapse is a very different proposition from one that happens
+ * while the price holds, and no single number in the table can express the
+ * difference.
+ *
+ * Because the layout invites reading the two vertically, both x axes are
+ * pinned to the *same* explicit domain — the requested window — rather than
+ * each auto-scaling to its own data. Without that, a 7d price chart sat above
+ * 15 minutes of fee history and aligned points referred to unrelated instants.
+ *
+ * The fee series can never fill a long window: raw samples are retained for
+ * `collector.sampleRetentionMs` (6h) and start when the collector first saw
+ * the pool. When coverage gets too thin to plot honestly, the panel says what
+ * it has instead of drawing a sliver.
  */
 export function PoolDetail({ address, onClose }: { address: string; onClose: () => void }) {
   const [data, setData] = useState<PoolDetailResponse | null>(null);
@@ -69,6 +90,13 @@ export function PoolDetail({ address, onClose }: { address: string; onClose: () 
 
   const p = data?.pool;
   const { base, quote } = p ? splitPairName(p.name) : { base: "", quote: "" };
+
+  // Both charts are pinned to this range. `generatedAt` rather than Date.now()
+  // so the axis matches the data the server actually assembled.
+  const windowMs = (data?.windowHours ?? 0) * 3_600_000;
+  const end = data?.generatedAt ?? Date.now();
+  const start = end - windowMs;
+  const coverage = signalCoverage(data?.signal ?? [], windowMs);
 
   return (
     <>
@@ -138,11 +166,24 @@ export function PoolDetail({ address, onClose }: { address: string; onClose: () 
           {p && data ? (
             <>
               <Section title="Prix">
-                <PriceChart candles={data.candles} />
+                <PriceChart candles={data.candles} start={start} end={end} />
               </Section>
 
-              <Section title="Fees dérivées ($/min)">
-                <RateChart signal={data.signal} />
+              <Section
+                title="Fees dérivées ($/min)"
+                aside={
+                  coverage.spanMs > 0
+                    ? `couvre ${fmtAge(end - coverage.spanMs, end)} · ${data.signal.length} pts`
+                    : undefined
+                }
+              >
+                <RateChart
+                  signal={data.signal}
+                  start={start}
+                  end={end}
+                  coverage={coverage}
+                  onPickWindow={setWindowKey}
+                />
               </Section>
 
               <Section title="Marché">
@@ -187,11 +228,20 @@ export function PoolDetail({ address, onClose }: { address: string; onClose: () 
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  aside,
+  children,
+}: {
+  title: string;
+  aside?: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="border-b border-line px-3 py-2">
-      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-fg-faint">
+      <h3 className="mb-1.5 flex items-baseline gap-2 text-[10px] font-semibold uppercase tracking-wide text-fg-faint">
         {title}
+        {aside ? <span className="tnum font-normal normal-case tracking-normal">{aside}</span> : null}
       </h3>
       {children}
     </section>
@@ -207,10 +257,34 @@ const TOOLTIP_STYLE = {
   padding: "4px 8px",
 };
 
-const hhmm = (ts: number): string =>
-  new Date(ts).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+/**
+ * Shared by both charts so a given instant lands on the same x in each.
+ * `allowDataOverflow` clips rather than stretches when a series runs past the
+ * window edge.
+ */
+function timeAxisProps(start: number, end: number) {
+  const span = end - start;
+  return {
+    dataKey: "t",
+    type: "number" as const,
+    scale: "time" as const,
+    domain: [start, end],
+    allowDataOverflow: true,
+    tickFormatter: (v: number) => fmtAxisTime(v, span),
+    minTickGap: 40,
+    ...AXIS,
+  };
+}
 
-function PriceChart({ candles }: { candles: PoolDetailResponse["candles"] }) {
+function PriceChart({
+  candles,
+  start,
+  end,
+}: {
+  candles: PoolDetailResponse["candles"];
+  start: number;
+  end: number;
+}) {
   if (candles.length === 0) {
     return (
       <Empty>
@@ -236,7 +310,7 @@ function PriceChart({ candles }: { candles: PoolDetailResponse["candles"] }) {
             </linearGradient>
           </defs>
           <CartesianGrid stroke="#1c2027" vertical={false} />
-          <XAxis dataKey="t" tickFormatter={hhmm} {...AXIS} minTickGap={40} />
+          <XAxis {...timeAxisProps(start, end)} />
           <YAxis
             {...AXIS}
             // Memecoin prices run to ten characters (0.00000245); anything
@@ -265,7 +339,24 @@ function PriceChart({ candles }: { candles: PoolDetailResponse["candles"] }) {
   );
 }
 
-function RateChart({ signal }: { signal: PoolDetailResponse["signal"] }) {
+/** Narrowest listed window that the covered span would fill respectably. */
+function suggestWindow(spanMs: number): (typeof WINDOWS)[number] {
+  return WINDOWS.find(([k]) => (WINDOW_HOURS[k] ?? 0) * 3_600_000 >= spanMs) ?? WINDOWS[0];
+}
+
+function RateChart({
+  signal,
+  start,
+  end,
+  coverage,
+  onPickWindow,
+}: {
+  signal: PoolDetailResponse["signal"];
+  start: number;
+  end: number;
+  coverage: { spanMs: number; ratio: number };
+  onPickWindow: (key: string) => void;
+}) {
   if (signal.length < 2) {
     return (
       <Empty>
@@ -274,13 +365,32 @@ function RateChart({ signal }: { signal: PoolDetailResponse["signal"] }) {
       </Empty>
     );
   }
+
+  // Pinned to the window, a thin series collapses against the right edge. Say
+  // what we have and offer the zoom where it is actually legible.
+  if (coverage.ratio < MIN_SIGNAL_COVERAGE) {
+    const [key, label] = suggestWindow(coverage.spanMs);
+    return (
+      <Empty>
+        Historique de fees limité à {fmtAge(end - coverage.spanMs, end)} — les échantillons bruts
+        sont conservés 6 h et démarrent à la découverte de la pool.{" "}
+        <button
+          onClick={() => onPickWindow(key)}
+          className="text-accent underline underline-offset-2 hover:text-fg"
+        >
+          Voir sur {label}
+        </button>
+      </Empty>
+    );
+  }
+
   const rows = signal.map((s) => ({ t: s.ts, rate: s.rate }));
   return (
     <div className="h-[110px]">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={rows} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
           <CartesianGrid stroke="#1c2027" vertical={false} />
-          <XAxis dataKey="t" tickFormatter={hhmm} {...AXIS} minTickGap={40} />
+          <XAxis {...timeAxisProps(start, end)} />
           {/* Same width as the price axis so both plot areas start at the same x. */}
           <YAxis {...AXIS} width={78} tickFormatter={(v: number) => fmtRate(v)} />
           <Tooltip

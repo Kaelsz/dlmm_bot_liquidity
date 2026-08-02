@@ -132,6 +132,30 @@ export function heatTier(heatPctPerHour: number): HeatTier {
 }
 
 /**
+ * How much of a requested window our own fee samples actually cover.
+ *
+ * The series is bounded twice over: by `sampleRetentionMs` (6h of raw samples)
+ * and by how long the collector has known the pool. Asking for 7d therefore
+ * cannot ever be answered in full, and the panel has to say so rather than
+ * stretch a few minutes of data across a week of axis.
+ */
+export function signalCoverage(
+  signal: readonly { ts: number }[],
+  windowMs: number,
+): { spanMs: number; ratio: number } {
+  if (signal.length < 2 || windowMs <= 0) return { spanMs: 0, ratio: 0 };
+  const spanMs = Math.max(0, signal[signal.length - 1]!.ts - signal[0]!.ts);
+  return { spanMs, ratio: spanMs / windowMs };
+}
+
+/**
+ * Below this share of the requested window, a shared time axis squeezes the
+ * fee series into an unreadable sliver against the right edge. The panel then
+ * states the coverage in words instead of drawing it.
+ */
+export const MIN_SIGNAL_COVERAGE = 0.1;
+
+/**
  * Annualised yield from the API's 24h fee/TVL percentage, compounded daily.
  * Reproduces the API's own `apy` (verified: SOL-USDC 0.0885% -> 38.11%) but
  * without the uint64 overflow it returns on young pools.
