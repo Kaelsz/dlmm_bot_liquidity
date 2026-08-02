@@ -1,0 +1,23 @@
+services:
+  radar:
+    build: .
+    image: meteora-pool-radar
+    container_name: radar
+    restart: unless-stopped
+    # Exposé sur la boucle locale uniquement : le reverse proxy sert le TLS.
+    # Pour un accès direct sans proxy, remplacer par "3000:3000".
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      # La base porte tout l'historique dérivé. Sans ce volume, chaque
+      # redémarrage repart de zéro et les sparklines mettent 15 min à revenir.
+      - radar-data:/data
+    environment:
+      DB_PATH: /data/radar.db
+      COLLECTOR: "on"
+      LOG_LEVEL: info
+    # SQLite en WAL n'aime pas être tué brutalement pendant un checkpoint.
+    stop_grace_period: 30s
+
+volumes:
+  radar-data:
