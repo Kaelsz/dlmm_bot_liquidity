@@ -264,14 +264,22 @@ const TOOLTIP_STYLE = {
  */
 function timeAxisProps(start: number, end: number) {
   const span = end - start;
+  // Ticks are spaced over the window, not over the data. Left to itself
+  // Recharts derives them from the points, so a series bunched at one end
+  // labels only that end and the axis stops conveying the window at all.
+  const count = 5;
+  const ticks = Array.from({ length: count }, (_, i) =>
+    Math.round(start + (span * i) / (count - 1)),
+  );
   return {
     dataKey: "t",
     type: "number" as const,
     scale: "time" as const,
     domain: [start, end],
+    ticks,
     allowDataOverflow: true,
     tickFormatter: (v: number) => fmtAxisTime(v, span),
-    minTickGap: 40,
+    minTickGap: 20,
     ...AXIS,
   };
 }
@@ -376,7 +384,7 @@ function RateChart({
         sont conservés 6 h et démarrent à la découverte de la pool.{" "}
         <button
           onClick={() => onPickWindow(key)}
-          className="text-accent underline underline-offset-2 hover:text-fg"
+          className="whitespace-nowrap text-accent underline underline-offset-2 hover:text-fg"
         >
           Voir sur {label}
         </button>
