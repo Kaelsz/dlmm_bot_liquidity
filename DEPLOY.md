@@ -65,16 +65,31 @@ Et trois volumes nommés : `radar-data` (la base — **sans lui, chaque redémar
 zéro**), `caddy-data` et `caddy-config` (l'autorité de certification interne, qui doit survivre
 aux redémarrages sinon le navigateur redemande d'accepter le certificat).
 
-### L'avertissement de certificat
+### L'adresse : pourquoi un nom et pas l'IP
 
-Sans nom de domaine, aucune autorité publique ne peut signer de certificat : Caddy en émet un
-avec sa propre autorité (`tls internal`). Le navigateur affiche donc un avertissement.
+Le script sert le dashboard sur `https://<ip-avec-tirets>.sslip.io/`, par exemple
+`https://116-203-133-235.sslip.io/`, et **pas** sur l'IP nue.
 
-Ce n'est pas une erreur de configuration, et ce n'est pas non plus sans valeur : la connexion est
-bien chiffrée, ce qui protège le mot de passe en transit — contrairement à du HTTP nu. Ce qui
-n'est pas garanti, c'est l'identité du serveur. Accepter une fois suffit.
+Ce n'est pas un détail cosmétique. **Le SNI de TLS ne peut pas transporter une adresse IP**
+(RFC 6066) : un navigateur qui ouvre `https://<ip>/` n'envoie aucun nom dans la poignée de main,
+le serveur ne sait pas quel certificat présenter, et la connexion casse — sans page, sans erreur
+lisible, sans même l'avertissement de certificat.
 
-Pour supprimer l'avertissement, il faut un nom de domaine : voir §3.
+[sslip.io](https://sslip.io) est un service DNS public qui résout n'importe quel
+`a-b-c-d.sslip.io` vers `a.b.c.d`. Gratuit, sans inscription, sans configuration. Deux bénéfices :
+
+1. le SNI fonctionne, donc le TLS aboutit ;
+2. **Let's Encrypt peut émettre un vrai certificat** — donc aucun avertissement de navigateur.
+
+La contrepartie honnête : la résolution du nom dépend d'un service tiers. S'il devient
+indisponible, le nom ne résout plus (le certificat, lui, reste valide). Pour s'en affranchir, il
+suffit d'un nom de domaine à soi — voir §3.
+
+**Le port 80 doit être joignable depuis internet** : c'est par lui que Let's Encrypt valide le
+domaine. Le script l'ouvre.
+
+Sur une machine sans accès entrant (réseau privé), ACME est impossible : `--self-signed` bascule
+sur un certificat auto-signé, avec l'avertissement de navigateur que cela implique.
 
 ### Vérifier à la main
 
@@ -303,6 +318,8 @@ irremplaçable.
 | Avertissements `The "…" variable is not set` au démarrage | Un `.env` traîne dans le répertoire : Compose le charge comme source d'interpolation. Le script le renomme en `.env.migrated` |
 | Le navigateur redemande d'accepter le certificat à chaque redémarrage | Volumes `caddy-data`/`caddy-config` absents : l'autorité interne est régénérée |
 | `connection refused` sur le port 443 | Caddy n'a pas démarré : `docker compose logs caddy` |
+| Rien ne s'affiche sur `https://<ip>/` | Une IP nue ne peut pas être servie en TLS : le SNI ne transporte pas d'adresse IP. Utiliser le nom sslip.io — `./scripts/deploy.sh` le fait automatiquement |
+| `no certificate available` / échec ACME | Le port 80 n'est pas joignable depuis internet. Ouvrir `80/tcp`, ou basculer avec `--self-signed` |
 | Caddy dit `certificate obtained successfully` mais le contrôle échoue | Le test visait `127.0.0.1` alors que le site est lié à l'IP publique : le SNI ne correspond à aucun site. Tester avec `curl -sk --resolve "<ip>:443:127.0.0.1" https://<ip>/` |
 | **Le port 443 accepte mais rien ne s'affiche, pas même l'avertissement de certificat** | `RADAR_SITE` absent ou sans hôte dans `.env`. Caddy n'active l'HTTPS automatique que s'il connaît une IP ou un domaine : sans ça il écoute sans certificat et la poignée de main TLS échoue. Vérifier avec `curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1/` depuis le VPS — doit répondre `401`. Corriger : `./scripts/deploy.sh --site https://mon.ip` |
 
@@ -338,7 +355,7 @@ rejeté en amont. Le résultat est donc le même — échec TLS — que le dépl
 **Seule une vérification lancée depuis le VPS fait foi**, et c'est celle qu'exécute désormais le
 script.
 
-### Deux défauts de cette catégorie se sont effectivement matérialisés
+### Trois défauts de cette catégorie se sont effectivement matérialisés
 
 La première version du `Caddyfile` ouvrait le site sur `:443`, un port sans hôte. Caddy écoutait
 bien, mais **n'activait pas l'HTTPS automatique** — il n'émettait donc aucun certificat, et la
@@ -358,6 +375,12 @@ tronqué à `$2a$14` avant d'atteindre Caddy — aucun mot de passe n'aurait jam
 rien ne le signalait. Les valeurs sont désormais écrites entre apostrophes simples, seule forme
 littérale, et le script **teste l'authentification avec le mot de passe qu'il vient de générer** :
 un `401` à ce stade fait échouer le déploiement au lieu de le déclarer réussi.
+
+Puis le plus fondamental : **servir une adresse IP nue en TLS ne peut pas marcher**. Le SNI ne
+transporte pas d'adresse IP, donc aucun nom n'arrive au serveur et le certificat ne peut pas être
+choisi. Aucun réglage de Caddy n'y remédie — il fallait un nom d'hôte. D'où le passage à sslip.io,
+qui règle le problème et supprime au passage l'avertissement de certificat, puisque Let's Encrypt
+peut enfin émettre.
 
 ### Ce qui reste vrai côté sécurité
 

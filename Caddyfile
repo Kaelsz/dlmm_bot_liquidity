@@ -1,19 +1,25 @@
 # Frontal de Meteora Pool Radar.
 #
-# L'adresse du site est `RADAR_SITE` (dans .env), typiquement
-# `https://<ip publique>` — ou `https://radar.mondomaine.fr` si un domaine
-# pointe sur la machine. scripts/deploy.sh la renseigne.
+# L'adresse du site est `RADAR_SITE` (dans radar.env), renseignée par
+# scripts/deploy.sh. Elle DOIT être un nom d'hôte, jamais une adresse IP nue.
 #
-# Elle DOIT contenir un hôte : Caddy n'active l'HTTPS automatique que s'il
-# connaît un nom de domaine ou une adresse IP. Un `:443` nu fait écouter le
-# port sans jamais émettre de certificat, et la poignée de main TLS échoue —
-# le navigateur n'affiche alors rien du tout, même pas l'avertissement.
+# Pourquoi : le SNI de TLS ne peut pas transporter une adresse IP (RFC 6066).
+# Un navigateur ouvrant `https://<ip>/` n'envoie donc aucun nom, et le serveur
+# doit deviner quel certificat présenter — chemin fragile, qui cassait ici la
+# poignée de main avant même que la page ou l'avertissement s'affichent.
 #
-# Avec une IP, `tls internal` fait signer par l'autorité interne de Caddy
-# (certificat avec SAN IP). Le navigateur avertit sur l'autorité inconnue :
-# c'est attendu, à accepter une fois. Le trafic est chiffré, donc le mot de
-# passe ne circule pas en clair. Avec un vrai domaine, retirer `tls internal`
-# suffit à basculer sur Let's Encrypt.
+# La parade sans acheter de domaine : sslip.io, un service DNS public qui
+# résout `116-203-133-235.sslip.io` vers `116.203.133.235`. On obtient un vrai
+# nom d'hôte, donc un SNI valide — et surtout Let's Encrypt peut émettre un
+# certificat authentique, ce qui supprime l'avertissement du navigateur.
+#
+# La validation ACME HTTP-01 exige que le port 80 soit joignable depuis
+# internet : il est publié dans docker-compose.yml et ouvert par deploy.sh.
+# C'est aussi pourquoi la redirection HTTP->HTTPS reste active ici.
+#
+# RADAR_TLS_DIRECTIVE permet de retomber sur `tls internal` (certificat
+# auto-signé) quand ACME est impossible — machine sans accès entrant, réseau
+# privé. Vide en fonctionnement normal.
 #
 # `basic_auth` (et non `basicauth`) : renommé en Caddy 2.8, image épinglée
 # au-delà dans docker-compose.yml.
@@ -22,13 +28,8 @@
 # `{env.VAR}` : basic_auth est analysé au chargement, où le placeholder
 # d'exécution n'est pas encore résolu.
 
-{
-	# Le port 80 n'est pas publié par docker-compose : pas de redirection.
-	auto_https disable_redirects
-}
-
 {$RADAR_SITE} {
-	tls internal
+	{$RADAR_TLS_DIRECTIVE}
 
 	basic_auth {
 		{$RADAR_USER} {$RADAR_PASSWORD_HASH}

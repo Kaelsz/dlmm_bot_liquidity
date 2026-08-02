@@ -12,8 +12,11 @@
 #   --check   préflight seul, n'installe et ne modifie rien
 #   --dir D   répertoire d'installation (défaut : ~/radar)
 #   --user U  identifiant HTTP (défaut : radar)
-#   --site S  adresse publique servie par Caddy, ex. https://203.0.113.5 ou
-#             https://radar.mondomaine.fr. Détectée automatiquement sinon.
+#   --site S  nom d'hôte servi par Caddy, ex. https://radar.mondomaine.fr.
+#             Par défaut, un nom sslip.io est dérivé de l'IP publique : le TLS
+#             exige un nom d'hôte, une IP nue ne peut pas fonctionner.
+#   --self-signed  forcer un certificat auto-signé au lieu de Let's Encrypt
+#                  (machine sans port 80 joignable depuis internet).
 
 set -euo pipefail
 
@@ -21,6 +24,7 @@ REPO_URL="https://github.com/Kaelsz/dlmm_bot_liquidity.git"
 INSTALL_DIR="${HOME}/radar"
 HTTP_USER="radar"
 SITE=""
+SELF_SIGNED=0
 CHECK_ONLY=0
 HEALTH_TIMEOUT=180
 
@@ -38,6 +42,7 @@ while [ $# -gt 0 ]; do
     --dir)   INSTALL_DIR="${2:?--dir attend un chemin}"; shift 2 ;;
     --user)  HTTP_USER="${2:?--user attend un identifiant}"; shift 2 ;;
     --site)  SITE="${2:?--site attend une adresse}"; shift 2 ;;
+    --self-signed) SELF_SIGNED=1; shift ;;
     -h|--help) sed -n '3,22p' "$0"; exit 0 ;;
     *) die "option inconnue : $1" ;;
   esac
@@ -119,21 +124,35 @@ ok "code sur $(git rev-parse --short HEAD)"
 
 # ------------------------------------------------ adresse publique du frontal
 
-# Caddy n'émet un certificat que s'il connaît un hôte. Une adresse de site
-# vide ou réduite à ":443" le fait écouter sans certificat : la poignée de
-# main TLS échoue et le navigateur n'affiche rien. On préfère donc échouer ici,
-# bruyamment, plutôt que produire une installation muette.
+# Le SNI de TLS ne peut pas transporter une adresse IP (RFC 6066) : un
+# navigateur ouvrant https://<ip>/ n'envoie aucun nom, et la poignée de main
+# échoue. Il faut donc un vrai nom d'hôte. sslip.io en fournit un gratuitement
+# pour n'importe quelle IP, ce qui permet en prime à Let's Encrypt d'émettre un
+# certificat authentique — donc aucun avertissement de navigateur.
+sslip_name() { printf '%s.sslip.io' "$(printf '%s' "$1" | tr '.' '-')"; }
+
 if [ -z "$SITE" ]; then
   say "Détection de l'adresse publique"
   DETECTED="$(curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null || true)"
   [ -n "$DETECTED" ] || DETECTED="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  [ -n "$DETECTED" ] || die "impossible de détecter l'adresse publique. La fournir : --site https://mon.ip.ou.domaine"
-  SITE="https://${DETECTED}"
+  [ -n "$DETECTED" ] || die "impossible de détecter l'adresse publique. La fournir : --site https://mon.domaine"
+  SITE="https://$(sslip_name "$DETECTED")"
   ok "adresse : $SITE"
 fi
 case "$SITE" in
   https://*|http://*) : ;;
   *) SITE="https://${SITE}" ;;
+esac
+
+# Une IP nue ne peut pas servir de nom de site : la convertir en sslip.io.
+CANDIDATE="${SITE#https://}"; CANDIDATE="${CANDIDATE#http://}"; CANDIDATE="${CANDIDATE%%/*}"
+case "$CANDIDATE" in
+  *[0-9].[0-9]*)
+    if printf '%s' "$CANDIDATE" | grep -Eq '^[0-9]+(\.[0-9]+){3}$'; then
+      SITE="https://$(sslip_name "$CANDIDATE")"
+      warn "adresse IP nue remplacée par un nom d'hôte : le TLS l'exige."
+      ok "adresse : $SITE"
+    fi ;;
 esac
 
 # ------------------------------------------------------------------- secret
@@ -147,6 +166,8 @@ ENVF="radar.env"
 # simples sont littérales.
 write_env() {
   umask 077
+  TLS_DIRECTIVE=""
+  [ "$SELF_SIGNED" -eq 1 ] && TLS_DIRECTIVE="tls internal"
   cat > "$ENVF" <<EOF
 # Généré par scripts/deploy.sh le $(date -Iseconds).
 # Les apostrophes simples sont OBLIGATOIRES : sans elles, Docker Compose
@@ -159,6 +180,9 @@ RADAR_PASSWORD_HASH='$2'
 # Adresse servie par Caddy. Doit contenir un hôte (IP ou domaine) : sans lui,
 # aucun certificat n'est émis et le HTTPS ne répond pas.
 RADAR_SITE='$3'
+# Vide = Let's Encrypt (certificat authentique, port 80 requis).
+# "tls internal" = certificat auto-signé, avec avertissement de navigateur.
+RADAR_TLS_DIRECTIVE='${TLS_DIRECTIVE}'
 EOF
 }
 
@@ -170,7 +194,15 @@ read_env_key() {
 if [ -f "$ENVF" ] && grep -q '^RADAR_PASSWORD_HASH=' "$ENVF"; then
   ok "$ENVF existant : mot de passe conservé"
   EXISTING_SITE="$(read_env_key "$ENVF" RADAR_SITE)"
-  if [ -n "$EXISTING_SITE" ]; then
+  EXISTING_HOST="${EXISTING_SITE#https://}"; EXISTING_HOST="${EXISTING_HOST#http://}"; EXISTING_HOST="${EXISTING_HOST%%/*}"
+  if printf '%s' "$EXISTING_HOST" | grep -Eq '^[0-9]+(\.[0-9]+){3}$'; then
+    # Installation antérieure pointant sur une IP nue : le TLS ne peut pas
+    # fonctionner ainsi, on réécrit avec le nom sslip.io correspondant.
+    warn "l'adresse configurée est une IP nue, que le TLS ne permet pas de servir"
+    SITE="https://$(sslip_name "$EXISTING_HOST")"
+    write_env "$(read_env_key "$ENVF" RADAR_USER)" "$(read_env_key "$ENVF" RADAR_PASSWORD_HASH)" "$SITE"
+    ok "adresse remplacée : $SITE"
+  elif [ -n "$EXISTING_SITE" ]; then
     SITE="$EXISTING_SITE"
     ok "adresse du site : $SITE"
   else
@@ -248,8 +280,10 @@ say "Vérification du frontal HTTPS"
 front() { curl -sk -o /dev/null -w '%{http_code}' --max-time 5 \
             --resolve "${SITE_HOST}:443:127.0.0.1" "$@" "https://${SITE_HOST}/" 2>/dev/null || true; }
 
+# L'émission Let's Encrypt prend quelques dizaines de secondes au premier
+# passage : laisser de la marge avant de conclure à un échec.
 FRONT_CODE=""
-deadline=$(( $(date +%s) + 60 ))
+deadline=$(( $(date +%s) + 150 ))
 while [ "$(date +%s)" -lt "$deadline" ]; do
   FRONT_CODE="$(front)"
   [ "$FRONT_CODE" = "000" ] || [ -z "$FRONT_CODE" ] || break
@@ -259,8 +293,18 @@ done
 if [ -z "$FRONT_CODE" ] || [ "$FRONT_CODE" = "000" ]; then
   printf '\n%sLe frontal HTTPS ne répond pas sur %s.%s Journaux de Caddy :\n\n' "$RED" "$SITE_HOST" "$RST" >&2
   $DOCKER compose logs --tail=40 caddy >&2 || true
-  printf '\nRADAR_SITE actuel : %s\n' "$(read_env_key "$ENVF" RADAR_SITE)" >&2
-  printf 'Si l'\''adresse est fausse : ./scripts/deploy.sh --site https://mon.ip\n' >&2
+  cat >&2 <<MSG
+
+RADAR_SITE actuel : $(read_env_key "$ENVF" RADAR_SITE)
+
+Causes les plus fréquentes :
+  - le port 80 n'est pas joignable depuis internet, donc Let's Encrypt ne peut
+    pas valider le domaine et aucun certificat n'est émis. Ouvrir 80/tcp.
+  - pas d'ACME possible sur cette machine :
+      ./scripts/deploy.sh --self-signed
+  - autre nom d'hôte :
+      ./scripts/deploy.sh --site https://mon.domaine
+MSG
   exit 1
 fi
 
@@ -295,8 +339,9 @@ fi
 if command -v ufw >/dev/null 2>&1; then
   say "Pare-feu"
   $SUDO ufw allow 22/tcp  >/dev/null 2>&1 || true
+  $SUDO ufw allow 80/tcp  >/dev/null 2>&1 || true
   $SUDO ufw allow 443/tcp >/dev/null 2>&1 || true
-  ok "ports 22 et 443 autorisés (3000 reste fermé, et doit le rester)"
+  ok "ports 22, 80 et 443 autorisés (3000 reste fermé, et doit le rester)"
 else
   warn "ufw absent : vérifier que seuls 22 et 443 sont joignables, jamais 3000"
 fi

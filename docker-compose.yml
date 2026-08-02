@@ -28,6 +28,9 @@ services:
     depends_on:
       - radar
     ports:
+      # Le port 80 est requis par la validation ACME HTTP-01 de Let's Encrypt,
+      # et sert la redirection vers HTTPS.
+      - "80:80"
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
