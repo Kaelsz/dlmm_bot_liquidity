@@ -299,9 +299,11 @@ irremplaçable.
 | Colonnes dérivées vides | Normal avant ~2 échantillons par pool. Attendre 15 min |
 | Base qui grossit sans fin | Ne devrait pas : la purge suit `sampleRetentionMs`. Vérifier les logs du collecteur |
 | Caddy ne démarre pas, `invalid password hash` | `RADAR_PASSWORD_HASH` contient un mot de passe en clair au lieu d'un hash bcrypt |
-| Le mot de passe n'est jamais accepté | Le hash a été mis dans `environment:` au lieu de `env_file:` — Compose a mangé les `$` |
+| **Le bon mot de passe est refusé** | Le hash n'est pas entre apostrophes simples dans `radar.env`. Compose interpole aussi les valeurs d'un `env_file` : non quotée, `$2a$14$ICFOs…` est amputée en `$2a$14`. Relancer `./scripts/deploy.sh` corrige le quotage |
+| Avertissements `The "…" variable is not set` au démarrage | Un `.env` traîne dans le répertoire : Compose le charge comme source d'interpolation. Le script le renomme en `.env.migrated` |
 | Le navigateur redemande d'accepter le certificat à chaque redémarrage | Volumes `caddy-data`/`caddy-config` absents : l'autorité interne est régénérée |
 | `connection refused` sur le port 443 | Caddy n'a pas démarré : `docker compose logs caddy` |
+| Caddy dit `certificate obtained successfully` mais le contrôle échoue | Le test visait `127.0.0.1` alors que le site est lié à l'IP publique : le SNI ne correspond à aucun site. Tester avec `curl -sk --resolve "<ip>:443:127.0.0.1" https://<ip>/` |
 | **Le port 443 accepte mais rien ne s'affiche, pas même l'avertissement de certificat** | `RADAR_SITE` absent ou sans hôte dans `.env`. Caddy n'active l'HTTPS automatique que s'il connaît une IP ou un domaine : sans ça il écoute sans certificat et la poignée de main TLS échoue. Vérifier avec `curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1/` depuis le VPS — doit répondre `401`. Corriger : `./scripts/deploy.sh --site https://mon.ip` |
 
 Variables d'ajustement dans `.env` (voir `.env.example`) : `DISCOVERY_INTERVAL_MS`,
@@ -320,12 +322,23 @@ Ce qui a été testé directement, et ce qui ne pouvait pas l'être :
 - ✅ `scripts/deploy.sh` : `shellcheck` propre, préflight exécuté, et **le chemin d'échec vérifié**
   — démon Docker absent, le script s'arrête avec un message explicite et un code retour non nul,
   sans rien laisser à moitié installé.
-- ✅ La migration d'un `.env` existant (ajout de `RADAR_SITE` sans toucher au hash) est testée,
-  y compris son idempotence.
+- ✅ La migration d'un `.env` existant vers `radar.env` est testée : hash identique au bit près,
+  idempotence, et extraction correcte de l'hôte du site.
+- ✅ **La corruption du hash par Compose a été reproduite puis vérifiée corrigée** avec
+  `docker compose config` (qui n'exige pas de démon) : valeur non quotée → `$2a$14` tronqué et un
+  avertissement ; valeur entre apostrophes simples → hash complet et aucun avertissement.
 - ⚠️ **Non testés faute de démon Docker** dans l'environnement de développement : la construction
   de l'image, le démarrage de Caddy et l'émission du certificat interne.
 
-### Un défaut de cette catégorie s'est effectivement matérialisé
+### Ce que je ne peux pas vérifier depuis l'environnement de développement
+
+Une sonde HTTPS lancée depuis cet environnement traverse un proxy sortant qui termine le TLS : le
+certificat reçu est émis par cette passerelle, pas par Caddy, et un certificat auto-signé est
+rejeté en amont. Le résultat est donc le même — échec TLS — que le déploiement soit sain ou non.
+**Seule une vérification lancée depuis le VPS fait foi**, et c'est celle qu'exécute désormais le
+script.
+
+### Deux défauts de cette catégorie se sont effectivement matérialisés
 
 La première version du `Caddyfile` ouvrait le site sur `:443`, un port sans hôte. Caddy écoutait
 bien, mais **n'activait pas l'HTTPS automatique** — il n'émettait donc aucun certificat, et la
@@ -337,9 +350,14 @@ Deux corrections en découlent :
 
 1. l'adresse du site est désormais explicite (`RADAR_SITE`), et le script refuse de démarrer
    plutôt que d'écrire une valeur vide ;
-2. le script vérifie maintenant **le frontal** et non plus seulement l'application — il exige un
-   `401` sur `https://127.0.0.1/`. C'est cette vérification manquante qui avait permis d'annoncer
-   « déploiement terminé » sur une installation injoignable.
+2. le script vérifie maintenant **le frontal** et non plus seulement l'application.
+
+Puis un second, plus insidieux : Docker Compose **interpole aussi les valeurs d'un `env_file`**,
+contrairement à ce qu'affirmait un commentaire de `docker-compose.yml`. Le hash bcrypt était donc
+tronqué à `$2a$14` avant d'atteindre Caddy — aucun mot de passe n'aurait jamais été accepté, et
+rien ne le signalait. Les valeurs sont désormais écrites entre apostrophes simples, seule forme
+littérale, et le script **teste l'authentification avec le mot de passe qu'il vient de générer** :
+un `401` à ce stade fait échouer le déploiement au lieu de le déclarer réussi.
 
 ### Ce qui reste vrai côté sécurité
 

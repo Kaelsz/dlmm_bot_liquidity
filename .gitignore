@@ -30,3 +30,4 @@ data/*
 *.pem
 *.tsbuildinfo
 coverage/
+radar.env

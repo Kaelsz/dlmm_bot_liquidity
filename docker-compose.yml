@@ -35,11 +35,16 @@ services:
       # chaque redémarrage et le navigateur redemande d'accepter le risque.
       - caddy-data:/data
       - caddy-config:/config
-    # env_file, et surtout PAS environment: le hash bcrypt contient des `$` que
-    # l'interpolation de Compose consommerait. env_file passe la valeur telle
-    # quelle.
+    # Compose interpole AUSSI les valeurs d'un env_file : une valeur non quotée
+    # contenant `$` est amputée (vérifié : `$2a$14$ICFOs…` devient `$2a$14`).
+    # Seules les apostrophes simples rendent la valeur littérale — c'est ainsi
+    # que scripts/deploy.sh écrit radar.env.
+    #
+    # Le fichier ne s'appelle pas .env à dessein : Compose charge tout .env du
+    # répertoire projet comme source d'interpolation du compose lui-même, ce
+    # qui ajoutait une seconde voie de corruption.
     env_file:
-      - .env
+      - radar.env
 
 volumes:
   radar-data:

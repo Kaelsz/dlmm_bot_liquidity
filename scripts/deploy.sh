@@ -139,39 +139,77 @@ esac
 # ------------------------------------------------------------------- secret
 
 GENERATED_PASSWORD=""
-if [ -f .env ] && grep -q '^RADAR_PASSWORD_HASH=' .env; then
-  ok ".env existant : mot de passe conservé"
-  # Migration des installations antérieures à RADAR_SITE : compléter sans
-  # jamais réécrire le fichier, pour ne pas risquer le hash déjà en place.
-  if grep -q '^RADAR_SITE=' .env; then
-    CURRENT_SITE="$(grep '^RADAR_SITE=' .env | head -1 | cut -d= -f2-)"
-    ok "adresse du site déjà configurée : ${CURRENT_SITE}"
-    SITE="$CURRENT_SITE"
+ENVF="radar.env"
+
+# Les valeurs sont écrites entre APOSTROPHES SIMPLES. Compose interpole les
+# valeurs d'un env_file : non quotée, `$2a$14$ICFOs…` est amputée en `$2a$14`
+# et l'authentification ne peut plus fonctionner. Seules les apostrophes
+# simples sont littérales.
+write_env() {
+  umask 077
+  cat > "$ENVF" <<EOF
+# Généré par scripts/deploy.sh le $(date -Iseconds).
+# Les apostrophes simples sont OBLIGATOIRES : sans elles, Docker Compose
+# interprète les \$ du hash bcrypt comme des variables et le tronque.
+# Pour changer le mot de passe :
+#   docker run --rm caddy:2-alpine caddy hash-password --plaintext 'nouveau'
+# puis recopier la valeur ci-dessous, entre apostrophes, et relancer ce script.
+RADAR_USER='$1'
+RADAR_PASSWORD_HASH='$2'
+# Adresse servie par Caddy. Doit contenir un hôte (IP ou domaine) : sans lui,
+# aucun certificat n'est émis et le HTTPS ne répond pas.
+RADAR_SITE='$3'
+EOF
+}
+
+# Lit une clé dans un fichier d'environnement en retirant un éventuel quotage.
+read_env_key() {
+  grep "^$2=" "$1" 2>/dev/null | head -1 | cut -d= -f2- | sed "s/^['\"]//; s/['\"]$//"
+}
+
+if [ -f "$ENVF" ] && grep -q '^RADAR_PASSWORD_HASH=' "$ENVF"; then
+  ok "$ENVF existant : mot de passe conservé"
+  EXISTING_SITE="$(read_env_key "$ENVF" RADAR_SITE)"
+  if [ -n "$EXISTING_SITE" ]; then
+    SITE="$EXISTING_SITE"
+    ok "adresse du site : $SITE"
   else
-    printf 'RADAR_SITE=%s\n' "$SITE" >> .env
-    ok "RADAR_SITE ajouté au .env existant : $SITE"
+    write_env "$(read_env_key "$ENVF" RADAR_USER)" "$(read_env_key "$ENVF" RADAR_PASSWORD_HASH)" "$SITE"
+    ok "RADAR_SITE ajouté : $SITE"
   fi
+  HTTP_USER="$(read_env_key "$ENVF" RADAR_USER)"
+
+elif [ -f .env ] && grep -q '^RADAR_PASSWORD_HASH=' .env; then
+  # Migration depuis les installations qui utilisaient .env. Le hash y est
+  # correct dans le fichier — c'est sa lecture par Compose qui le corrompait —
+  # donc le mot de passe déjà noté par l'utilisateur reste valable.
+  say "Migration de .env vers $ENVF (quotage du hash)"
+  OLD_USER="$(read_env_key .env RADAR_USER)"
+  OLD_HASH="$(read_env_key .env RADAR_PASSWORD_HASH)"
+  OLD_SITE="$(read_env_key .env RADAR_SITE)"
+  [ -n "$OLD_HASH" ] || die "hash illisible dans .env"
+  [ -n "$OLD_SITE" ] && SITE="$OLD_SITE"
+  [ -n "$OLD_USER" ] && HTTP_USER="$OLD_USER"
+  write_env "$HTTP_USER" "$OLD_HASH" "$SITE"
+  # Écarter l'ancien fichier : Compose charge tout .env du répertoire projet
+  # comme source d'interpolation, ce qui laissait des avertissements trompeurs
+  # sur un déploiement pourtant sain.
+  mv .env .env.migrated
+  ok "$ENVF créé (mot de passe conservé), ancien .env renommé en .env.migrated"
+
 else
   say "Génération du mot de passe d'accès"
   GENERATED_PASSWORD="$(head -c 18 /dev/urandom | base64 | tr -d '/+=' | head -c 20)"
   # Le hash est produit par la même image que celle qui l'utilisera.
   HASH="$($DOCKER run --rm caddy:2-alpine caddy hash-password --plaintext "$GENERATED_PASSWORD")"
   [ -n "$HASH" ] || die "la génération du hash a échoué"
-  umask 077
-  cat > .env <<EOF
-# Généré par scripts/deploy.sh le $(date -Iseconds).
-# Le hash est bcrypt : ne jamais le remplacer par un mot de passe en clair.
-# Pour changer le mot de passe :
-#   docker run --rm caddy:2-alpine caddy hash-password --plaintext 'nouveau'
-# puis recopier la valeur ci-dessous et relancer : docker compose up -d
-RADAR_USER=${HTTP_USER}
-RADAR_PASSWORD_HASH=${HASH}
-# Adresse servie par Caddy. Doit contenir un hôte (IP ou domaine) : sans lui,
-# aucun certificat n'est émis et le HTTPS ne répond pas.
-RADAR_SITE=${SITE}
-EOF
-  ok "identifiants écrits dans .env (permissions 600)"
+  write_env "$HTTP_USER" "$HASH" "$SITE"
+  ok "identifiants écrits dans $ENVF (permissions 600)"
 fi
+
+# Hôte réellement servi par Caddy : c'est lui qu'il faut interroger, pas
+# 127.0.0.1, sinon le SNI ne correspond à aucun site et le TLS échoue.
+SITE_HOST="${SITE#https://}"; SITE_HOST="${SITE_HOST#http://}"; SITE_HOST="${SITE_HOST%%/*}"
 
 # ----------------------------------------------------------------- démarrage
 
@@ -202,29 +240,55 @@ ok "application en ligne"
 # annonce un succès sur une installation injoignable — c'est précisément ce
 # qui s'est produit avec une adresse de site sans hôte.
 say "Vérification du frontal HTTPS"
+
+# --resolve : on envoie le bon SNI (l'hôte du site) tout en se connectant en
+# local. Interroger 127.0.0.1 directement présenterait un SNI que Caddy ne sert
+# pas — aucun certificat, poignée de main échouée, et un faux diagnostic de
+# frontal mort.
+front() { curl -sk -o /dev/null -w '%{http_code}' --max-time 5 \
+            --resolve "${SITE_HOST}:443:127.0.0.1" "$@" "https://${SITE_HOST}/" 2>/dev/null || true; }
+
 FRONT_CODE=""
 deadline=$(( $(date +%s) + 60 ))
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  FRONT_CODE="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 https://127.0.0.1/ 2>/dev/null || true)"
+  FRONT_CODE="$(front)"
   [ "$FRONT_CODE" = "000" ] || [ -z "$FRONT_CODE" ] || break
   sleep 3
 done
 
+if [ -z "$FRONT_CODE" ] || [ "$FRONT_CODE" = "000" ]; then
+  printf '\n%sLe frontal HTTPS ne répond pas sur %s.%s Journaux de Caddy :\n\n' "$RED" "$SITE_HOST" "$RST" >&2
+  $DOCKER compose logs --tail=40 caddy >&2 || true
+  printf '\nRADAR_SITE actuel : %s\n' "$(read_env_key "$ENVF" RADAR_SITE)" >&2
+  printf 'Si l'\''adresse est fausse : ./scripts/deploy.sh --site https://mon.ip\n' >&2
+  exit 1
+fi
+
 case "$FRONT_CODE" in
-  401)
-    ok "TLS établi et authentification active (401 attendu sans identifiants)" ;;
-  200)
-    warn "le frontal répond 200 : l'authentification ne protège rien. Vérifier basic_auth dans le Caddyfile." ;;
-  ""|000)
-    printf '\n%sLe frontal HTTPS ne répond pas.%s Journaux de Caddy :\n\n' "$RED" "$RST" >&2
-    $DOCKER compose logs --tail=40 caddy >&2 || true
-    printf '\nCause la plus fréquente : RADAR_SITE absent ou sans hôte dans .env.\n' >&2
-    printf 'Valeur actuelle : %s\n' "$(grep '^RADAR_SITE=' .env 2>/dev/null || echo '(absente)')" >&2
-    printf 'Corriger puis relancer : ./scripts/deploy.sh --site https://mon.ip\n' >&2
-    exit 1 ;;
-  *)
-    warn "le frontal répond ${FRONT_CODE} (401 attendu). L'app est en ligne, vérifier le Caddyfile." ;;
+  401) ok "TLS établi, authentification active (401 sans identifiants)" ;;
+  200) warn "le frontal répond 200 sans identifiants : basic_auth ne protège rien." ;;
+  *)   warn "le frontal répond ${FRONT_CODE} (401 attendu) — vérifier le Caddyfile" ;;
 esac
+
+# Contrôle décisif, possible seulement quand on vient de générer le mot de
+# passe : il vérifie que le hash est arrivé INTACT jusqu'à Caddy. C'est ce qui
+# manquait quand l'interpolation de Compose tronquait silencieusement le hash.
+if [ -n "$GENERATED_PASSWORD" ]; then
+  say "Vérification de l'authentification"
+  AUTH_CODE="$(front -u "${HTTP_USER}:${GENERATED_PASSWORD}")"
+  case "$AUTH_CODE" in
+    200)
+      ok "identifiants acceptés — le hash est intact" ;;
+    401)
+      printf '\n%sLe mot de passe généré est refusé.%s\n' "$RED" "$RST" >&2
+      printf 'Le hash a été altéré entre %s et Caddy. Vérifier que les valeurs de\n' "$ENVF" >&2
+      printf '%s sont bien entre apostrophes simples : Compose interpole sinon les $.\n' "$ENVF" >&2
+      $DOCKER compose logs --tail=20 caddy >&2 || true
+      exit 1 ;;
+    *)
+      warn "réponse ${AUTH_CODE} avec identifiants (200 attendu)" ;;
+  esac
+fi
 
 # ----------------------------------------------------------------- pare-feu
 
