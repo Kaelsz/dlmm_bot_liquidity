@@ -35,6 +35,8 @@ export interface PoolRow {
   freezeDisabled: boolean;
   ts: number;
   feeRateUsdMin: number;
+  /** Derived volume rate. Empty until two samples exist, unlike volume30m. */
+  volumeRateUsdMin: number;
   heatPctHr: number;
   feeAccel: number;
   hotStreak: number;
@@ -127,6 +129,7 @@ export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {
     freezeDisabled: (riskyIsX ? r.tokenXFreezeDisabled : r.tokenYFreezeDisabled) === 1,
     ts: r.ts,
     feeRateUsdMin: r.feeRateUsdMin,
+    volumeRateUsdMin: r.volumeRateUsdMin,
     heatPctHr: r.heatPctHr,
     feeAccel: r.feeAccel,
     hotStreak: r.hotStreak,

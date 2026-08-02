@@ -276,7 +276,7 @@ export class Collector {
         const k = key(p);
         const next = pushFeePoint(
           this.history.get(k) ?? [],
-          { ts: now, cumFees: p.cumulativeFeesUsd, tvl: p.tvl },
+          { ts: now, cumFees: p.cumulativeFeesUsd, cumVolume: p.cumulativeVolumeUsd, tvl: p.tvl },
           config.collector.historyPoints,
         );
         // A rejected point means a stale API read; skip the sample entirely

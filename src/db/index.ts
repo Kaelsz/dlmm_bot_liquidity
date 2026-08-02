@@ -47,6 +47,7 @@ export interface LeaderboardRow {
   tokenYFreezeDisabled: number;
   ts: number;
   feeRateUsdMin: number;
+  volumeRateUsdMin: number;
   heatPctHr: number;
   feeAccel: number;
   hotStreak: number;
@@ -92,6 +93,7 @@ const LEADERBOARD_SELECT = `
     m.fee_accel AS feeAccel, m.hot_streak AS hotStreak,
     m.sample_count AS sampleCount, m.sparkline_json AS sparklineJson,
     m.tvl, m.price, m.volume_30m AS volume30m, m.fees_30m AS fees30m,
+    m.volume_rate_usd_min AS volumeRateUsdMin,
     m.fee_tvl_30m_pct AS feeTvl30mPct, m.fee_tvl_24h_pct AS feeTvl24hPct,
     m.dynamic_fee_pct AS dynamicFeePct, m.apy_pct AS apyPct
   FROM pool_metrics m
@@ -224,18 +226,19 @@ export class RadarDb {
 
   private static readonly UPSERT_METRICS = `
     INSERT INTO pool_metrics (
-      pool_address, ts, fee_rate_usd_min, heat_pct_hr, fee_accel,
+      pool_address, ts, fee_rate_usd_min, volume_rate_usd_min, heat_pct_hr, fee_accel,
       peak_rate_usd_min, hot_streak, sample_count, sparkline_json,
       tvl, price, volume_30m, fees_30m, fee_tvl_30m_pct, fee_tvl_24h_pct,
       dynamic_fee_pct, apy_pct, reserve_x_amount, reserve_y_amount
     ) VALUES (
-      @poolAddress, @ts, @feeRate, @heat, @accel,
+      @poolAddress, @ts, @feeRate, @volumeRate, @heat, @accel,
       @peakRate, @hotStreak, @sampleCount, @sparkline,
       @tvl, @price, @volume30m, @fees30m, @feeTvl30mPct, @feeTvl24hPct,
       @dynamicFeePct, @apyPct, @reserveX, @reserveY
     )
     ON CONFLICT(pool_address) DO UPDATE SET
-      ts = @ts, fee_rate_usd_min = @feeRate, heat_pct_hr = @heat,
+      ts = @ts, fee_rate_usd_min = @feeRate,
+      volume_rate_usd_min = @volumeRate, heat_pct_hr = @heat,
       fee_accel = @accel, peak_rate_usd_min = @peakRate,
       hot_streak = @hotStreak, sample_count = @sampleCount,
       sparkline_json = @sparkline, tvl = @tvl, price = @price,
@@ -251,6 +254,7 @@ export class RadarDb {
       poolAddress: p.address,
       ts,
       feeRate: m.feeRateUsdPerMin,
+      volumeRate: m.volumeRateUsdPerMin,
       heat: m.heatPctPerHour,
       accel: m.feeAccel,
       peakRate: m.peakRateUsdPerMin,
@@ -272,14 +276,22 @@ export class RadarDb {
   }
 
   /** Rebuild in-memory fee history after a restart. Oldest first. */
-  recentSamples(poolAddress: string, limit: number): Array<{ ts: number; cumFees: number; tvl: number }> {
+  recentSamples(
+    poolAddress: string,
+    limit: number,
+  ): Array<{ ts: number; cumFees: number; cumVolume: number; tvl: number }> {
     const rows = this.db
       .prepare(
-        `SELECT ts, cum_fees_usd AS cumFees, tvl
+        `SELECT ts, cum_fees_usd AS cumFees, cum_volume_usd AS cumVolume, tvl
            FROM pool_samples WHERE pool_address = ?
           ORDER BY ts DESC LIMIT ?`,
       )
-      .all(poolAddress, limit) as Array<{ ts: number; cumFees: number; tvl: number }>;
+      .all(poolAddress, limit) as Array<{
+      ts: number;
+      cumFees: number;
+      cumVolume: number;
+      tvl: number;
+    }>;
     return rows.reverse();
   }
 
@@ -326,6 +338,7 @@ export class RadarDb {
         rate: "m.fee_rate_usd_min DESC",
         tvl: "m.tvl DESC",
         volume: "m.volume_30m DESC",
+        volumeRate: "m.volume_rate_usd_min DESC",
         age: "p.created_at DESC",
         accel: "m.fee_accel DESC",
       }[f.sort ?? "heat"] ?? "m.heat_pct_hr DESC";

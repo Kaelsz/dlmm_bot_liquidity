@@ -9,9 +9,11 @@ import {
 
 const M = 60_000;
 
-/** Builds a history from [minutesFromStart, cumulativeFees] pairs. */
+/** Builds a history from [minutesFromStart, cumulativeFees] pairs.
+ *  Cumulative volume trails fees by a constant factor unless a test overrides
+ *  it, so fee assertions are unaffected by its presence. */
 const hist = (pairs: Array<[number, number]>, tvl = 10_000): FeePoint[] =>
-  pairs.map(([min, cumFees]) => ({ ts: min * M, cumFees, tvl }));
+  pairs.map(([min, cumFees]) => ({ ts: min * M, cumFees, cumVolume: cumFees * 100, tvl }));
 
 describe("pushFeePoint", () => {
   it("drops readings where cumulative fees go backwards", () => {
@@ -20,20 +22,20 @@ describe("pushFeePoint", () => {
       [1, 150],
     ]);
     // A stale API read reports less than we already banked.
-    expect(pushFeePoint(h, { ts: 2 * M, cumFees: 120, tvl: 10_000 }, 20)).toBeUndefined();
+    expect(pushFeePoint(h, { ts: 2 * M, cumFees: 120, cumVolume: 12_000, tvl: 10_000 }, 20)).toBeUndefined();
     // A normal increase is accepted.
-    expect(pushFeePoint(h, { ts: 2 * M, cumFees: 200, tvl: 10_000 }, 20)).toHaveLength(3);
+    expect(pushFeePoint(h, { ts: 2 * M, cumFees: 200, cumVolume: 20_000, tvl: 10_000 }, 20)).toHaveLength(3);
   });
 
   it("drops out-of-order timestamps", () => {
     const h = hist([[5, 100]]);
-    expect(pushFeePoint(h, { ts: 4 * M, cumFees: 200, tvl: 1 }, 20)).toBeUndefined();
+    expect(pushFeePoint(h, { ts: 4 * M, cumFees: 200, cumVolume: 20_000, tvl: 1 }, 20)).toBeUndefined();
   });
 
   it("caps the history and keeps the newest points", () => {
     let h: FeePoint[] = [];
     for (let i = 0; i < 10; i += 1) {
-      h = pushFeePoint(h, { ts: i * M, cumFees: i * 10, tvl: 1 }, 4)!;
+      h = pushFeePoint(h, { ts: i * M, cumFees: i * 10, cumVolume: i * 1_000, tvl: 1 }, 4)!;
     }
     expect(h).toHaveLength(4);
     expect(h[h.length - 1]!.cumFees).toBe(90);
@@ -41,7 +43,7 @@ describe("pushFeePoint", () => {
 
   it("does not mutate the input", () => {
     const h = hist([[0, 100]]);
-    pushFeePoint(h, { ts: M, cumFees: 200, tvl: 1 }, 20);
+    pushFeePoint(h, { ts: M, cumFees: 200, cumVolume: 20_000, tvl: 1 }, 20);
     expect(h).toHaveLength(1);
   });
 });
@@ -49,6 +51,29 @@ describe("pushFeePoint", () => {
 describe("deriveMetrics", () => {
   it("needs at least two samples", () => {
     expect(deriveMetrics(hist([[0, 100]]))).toBeUndefined();
+  });
+
+  it("derives the volume rate from the last interval, like fees", () => {
+    // $12k of volume over 2 minutes => $6k/min. The API's shortest bucket is
+    // 30 minutes, so this resolution exists nowhere else.
+    const h: FeePoint[] = [
+      { ts: 0, cumFees: 0, cumVolume: 0, tvl: 10_000 },
+      { ts: M, cumFees: 10, cumVolume: 5_000, tvl: 10_000 },
+      { ts: 3 * M, cumFees: 40, cumVolume: 17_000, tvl: 10_000 },
+    ];
+    expect(deriveMetrics(h)!.volumeRateUsdPerMin).toBeCloseTo(6_000);
+  });
+
+  it("clamps a volume counter that goes backwards", () => {
+    // Fees still advance, so the sample is kept; only the stale volume is
+    // neutralised rather than reported as a negative rate.
+    const h: FeePoint[] = [
+      { ts: 0, cumFees: 0, cumVolume: 50_000, tvl: 10_000 },
+      { ts: M, cumFees: 10, cumVolume: 40_000, tvl: 10_000 },
+    ];
+    const m = deriveMetrics(h)!;
+    expect(m.volumeRateUsdPerMin).toBe(0);
+    expect(m.feeRateUsdPerMin).toBeCloseTo(10);
   });
 
   it("computes the fee rate from the last interval", () => {

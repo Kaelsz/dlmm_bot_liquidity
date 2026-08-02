@@ -21,12 +21,17 @@ export interface FeePoint {
   ts: number;
   /** `cumulative_metrics.fees` — monotonically increasing. */
   cumFees: number;
+  /** `cumulative_metrics.volume` — same treatment, same resolution win. */
+  cumVolume: number;
   tvl: number;
 }
 
 export interface DerivedMetrics {
   /** USD of fees per minute, from the most recent pair of samples. */
   feeRateUsdPerMin: number;
+  /** USD of volume per minute, derived the same way. The API's own shortest
+   *  volume bucket is 30 minutes, which cannot show a burst as it happens. */
+  volumeRateUsdPerMin: number;
   /** Percent of TVL paid out as fees per hour, at the current rate. */
   heatPctPerHour: number;
   /** Second derivative: change in fee rate per minute. Positive = accelerating. */
@@ -65,11 +70,17 @@ export function pushFeePoint(
   return next.length > maxPoints ? next.slice(next.length - maxPoints) : next;
 }
 
-/** Fee rate in USD/min between two samples. */
-function rateBetween(a: FeePoint, b: FeePoint): number {
+/**
+ * USD/min between two samples for one of the cumulative counters.
+ *
+ * Negative deltas are clamped to zero: both counters only ever increase, so a
+ * drop means the API served a stale value, and a negative rate would be
+ * nonsense followed by a phantom spike once it catches up.
+ */
+function rateBetween(a: FeePoint, b: FeePoint, field: "cumFees" | "cumVolume"): number {
   const dtMin = (b.ts - a.ts) / 60_000;
   if (dtMin <= 0) return 0;
-  const rate = (b.cumFees - a.cumFees) / dtMin;
+  const rate = (b[field] - a[field]) / dtMin;
   return rate > 0 ? rate : 0;
 }
 
@@ -81,11 +92,13 @@ export function deriveMetrics(
 
   const rateSeries: number[] = [];
   for (let i = 1; i < history.length; i += 1) {
-    rateSeries.push(rateBetween(history[i - 1]!, history[i]!));
+    rateSeries.push(rateBetween(history[i - 1]!, history[i]!, "cumFees"));
   }
 
   const curr = history[history.length - 1]!;
+  const prev = history[history.length - 2]!;
   const feeRateUsdPerMin = rateSeries[rateSeries.length - 1] ?? 0;
+  const volumeRateUsdPerMin = rateBetween(prev, curr, "cumVolume");
 
   const tvl = curr.tvl > 0 ? curr.tvl : 0;
   const heatPctPerHour = tvl > 0 ? ((feeRateUsdPerMin * 60) / tvl) * 100 : 0;
@@ -93,7 +106,7 @@ export function deriveMetrics(
   let feeAccel = 0;
   if (rateSeries.length >= 2) {
     const prevRate = rateSeries[rateSeries.length - 2]!;
-    const dtMin = (curr.ts - history[history.length - 2]!.ts) / 60_000;
+    const dtMin = (curr.ts - prev.ts) / 60_000;
     if (dtMin > 0) feeAccel = (feeRateUsdPerMin - prevRate) / dtMin;
   }
 
@@ -107,6 +120,7 @@ export function deriveMetrics(
 
   return {
     feeRateUsdPerMin,
+    volumeRateUsdPerMin,
     heatPctPerHour,
     feeAccel,
     sampleCount: history.length,

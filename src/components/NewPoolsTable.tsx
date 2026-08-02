@@ -111,6 +111,9 @@ export function NewPoolsTable({
               <Num value={r.feeRateUsdMin} format={fmtRate} className="font-semibold text-fg" />
             </td>
             <td className="px-2">
+              <Num value={r.volumeRateUsdMin} format={fmtUsd} className="text-fg-dim" />
+            </td>
+            <td className="px-2">
               <Sparkline points={r.sparkline} />
             </td>
             <td className="px-2">
@@ -190,7 +193,8 @@ export function NewPoolsTable({
             <th className="w-[56px] px-2 py-1.5 text-right">Âge</th>
             <th className="w-[190px] px-2 py-1.5 text-left">Pool</th>
             <th className="w-[92px] px-2 py-1.5 text-right">Heat %/h</th>
-            <th className="w-[74px] px-2 py-1.5 text-right">$/min</th>
+            <th className="w-[74px] px-2 py-1.5 text-right">Fees/min</th>
+            <th className="w-[74px] px-2 py-1.5 text-right">Vol/min</th>
             <th className="w-[72px] px-2 py-1.5 text-left">Tendance</th>
             <th className="w-[74px] px-2 py-1.5 text-right">TVL</th>
             <th className="w-[74px] px-2 py-1.5 text-right">Vol 30m</th>

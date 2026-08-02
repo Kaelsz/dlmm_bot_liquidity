@@ -12,7 +12,8 @@ import type { PoolRow } from "@/lib/api-types";
 const COLS = [
   { key: "pool", label: "Pool", w: "min-w-[190px] w-[190px]", align: "left" },
   { key: "heat", label: "Heat %/h", w: "w-[92px]", align: "right", sortable: true },
-  { key: "rate", label: "$/min", w: "w-[74px]", align: "right", sortable: true },
+  { key: "rate", label: "Fees/min", w: "w-[74px]", align: "right", sortable: true },
+  { key: "volumeRate", label: "Vol/min", w: "w-[74px]", align: "right", sortable: true },
   { key: "spark", label: "Tendance", w: "w-[72px]", align: "left" },
   { key: "accel", label: "Accél.", w: "w-[76px]", align: "right", sortable: true },
   { key: "tvl", label: "TVL", w: "w-[74px]", align: "right", sortable: true },
@@ -25,7 +26,7 @@ const COLS = [
   { key: "links", label: "Liens", w: "w-[86px]", align: "left" },
 ] as const;
 
-export type SortKey = "heat" | "rate" | "tvl" | "volume" | "age" | "accel";
+export type SortKey = "heat" | "rate" | "volumeRate" | "tvl" | "volume" | "age" | "accel";
 
 const SORT_FOR_COL: Partial<Record<string, SortKey>> = {
   heat: "heat",
@@ -124,6 +125,10 @@ export function MarketTable({
 
             <td className="px-2">
               <Num value={r.feeRateUsdMin} format={fmtRate} className="font-semibold text-fg" />
+            </td>
+
+            <td className="px-2">
+              <Num value={r.volumeRateUsdMin} format={fmtUsd} className="text-fg-dim" />
             </td>
 
             <td className="px-2">
