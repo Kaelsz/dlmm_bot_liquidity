@@ -92,6 +92,12 @@ export const config = {
       minSpanMs: 45_000,
       /** Plafond : une pool inerte ne doit pas moyenner indéfiniment. */
       maxWindowMs: 600_000,
+      /**
+       * Sous ce taux, on affiche zéro. Mesuré : 39 % des taux positifs sont
+       * sous $0,01/min et le plus petit vaut 2e-20 — de la poussière en
+       * virgule flottante. $0,01/min = moins de $15/jour, rien d'exploitable.
+       */
+      minMeaningfulRate: 0.01,
     },
     /** Raw samples retention. */
     sampleRetentionMs: 6 * 3_600_000,

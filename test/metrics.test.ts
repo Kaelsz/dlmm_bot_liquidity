@@ -302,3 +302,24 @@ describe("taux sur compteur en escalier (cadence réelle de l'API)", () => {
     expect(isRateReliable(deriveMetrics(steppy(6, 60))!)).toBe(true);
   });
 });
+
+describe("plancher de poussière numérique", () => {
+  it("ramène à zéro un taux qui n'est que du résidu flottant", () => {
+    // Cas réel : le plus petit taux « positif » observé valait 2e-20 $/min.
+    const dust: FeePoint[] = [];
+    for (let i = 0; i <= 10; i += 1) {
+      dust.push({ ts: i * 30_000, cumFees: i * 1e-18, cumVolume: 0, tvl: 10_000 });
+    }
+    const m = deriveMetrics(dust)!;
+    expect(m.feeRateUsdPerMin).toBe(0);
+    expect(m.heatPctPerHour).toBe(0);
+  });
+
+  it("ne touche pas un débit réel, même modeste", () => {
+    // $0.30/min : trente fois le plancher, doit passer intact.
+    const pts: Array<[number, number]> = [];
+    for (let min = 0; min <= 8; min += 1) pts.push([min, min * 0.3]);
+    const m = deriveMetrics(hist(pts))!;
+    expect(m.feeRateUsdPerMin).toBeCloseTo(0.3, 2);
+  });
+});
