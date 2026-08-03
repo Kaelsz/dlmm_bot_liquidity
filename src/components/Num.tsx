@@ -70,3 +70,34 @@ export function SignedNum({
     </span>
   );
 }
+
+/**
+ * Enrobe une valeur dérivée dont la fenêtre n'est pas encore remplie.
+ *
+ * Choix explicite : on affiche tôt plutôt que de masquer, mais on marque —
+ * opacité réduite et infobulle disant sur quoi repose l'estimation. Un chiffre
+ * fondé sur une seule mise à jour du compteur ne doit pas se lire comme un
+ * chiffre étayé par cinq.
+ */
+export function Tentative({
+  low,
+  spanMs,
+  updates,
+  children,
+}: {
+  low: boolean;
+  spanMs: number;
+  updates: number;
+  children: React.ReactNode;
+}) {
+  if (!low) return <>{children}</>;
+  const secs = Math.round(spanMs / 1000);
+  return (
+    <span
+      className="opacity-40"
+      title={`estimation peu étayée : ${secs} s d'historique, ${updates} mise${updates > 1 ? "s" : ""} à jour du compteur`}
+    >
+      {children}
+    </span>
+  );
+}

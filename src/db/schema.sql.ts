@@ -24,6 +24,8 @@ export const MIGRATIONS: string[] = [
   "ALTER TABLE pools ADD COLUMN token_y_freeze_disabled INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE pools ADD COLUMN token_y_market_cap REAL NOT NULL DEFAULT 0",
   "ALTER TABLE pool_metrics ADD COLUMN volume_rate_usd_min REAL NOT NULL DEFAULT 0",
+  "ALTER TABLE pool_metrics ADD COLUMN rate_span_ms INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE pool_metrics ADD COLUMN rate_updates INTEGER NOT NULL DEFAULT 0",
 ];
 
 export const SCHEMA = `
@@ -83,6 +85,9 @@ CREATE TABLE IF NOT EXISTS pool_metrics (
   ts                 INTEGER NOT NULL,
   fee_rate_usd_min   REAL NOT NULL DEFAULT 0,
   volume_rate_usd_min REAL NOT NULL DEFAULT 0,
+  -- Portée réelle de la fenêtre de dérivation : porte la confiance du taux.
+  rate_span_ms       INTEGER NOT NULL DEFAULT 0,
+  rate_updates       INTEGER NOT NULL DEFAULT 0,
   heat_pct_hr        REAL NOT NULL DEFAULT 0,
   fee_accel          REAL NOT NULL DEFAULT 0,
   peak_rate_usd_min  REAL NOT NULL DEFAULT 0,

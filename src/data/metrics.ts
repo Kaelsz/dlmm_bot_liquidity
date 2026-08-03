@@ -7,6 +7,13 @@
  * monotonically increasing counter — so sampling it and differentiating gives
  * a fee rate at whatever resolution we poll at.
  *
+ * CADENCE RÉELLE DU COMPTEUR — mesurée, pas supposée : `cumulative_metrics.fees`
+ * ne croît pas continûment, il saute environ une fois par minute (20 intervalles
+ * nuls sur 23 lectures espacées de 5 s, sur la pool la plus active du marché).
+ * Dériver sur le seul dernier couple d'échantillons donne donc alternativement
+ * 0 et un multiple du vrai débit — c'est ce qui faisait clignoter le Heat et
+ * entrer/sortir les pools du classement. D'où la fenêtre adaptative ci-dessous.
+ *
  * Everything here is pure so it can be unit-tested without network or DB.
  *
  * UNITS — the trap that bit the previous implementation:
@@ -26,6 +33,19 @@ export interface FeePoint {
   tvl: number;
 }
 
+/** Paramètres de la fenêtre adaptative (voir `config.collector.rate`). */
+export interface RateWindowConfig {
+  minUpdates: number;
+  minSpanMs: number;
+  maxWindowMs: number;
+}
+
+export const DEFAULT_RATE_WINDOW: RateWindowConfig = {
+  minUpdates: 3,
+  minSpanMs: 45_000,
+  maxWindowMs: 600_000,
+};
+
 export interface DerivedMetrics {
   /** USD of fees per minute, from the most recent pair of samples. */
   feeRateUsdPerMin: number;
@@ -38,6 +58,10 @@ export interface DerivedMetrics {
   feeAccel: number;
   /** How many usable samples back the estimate. Below 2, nothing is derivable. */
   sampleCount: number;
+  /** Durée réellement couverte par la fenêtre du taux, en ms. */
+  rateSpanMs: number;
+  /** Nombre de sauts du compteur captés par la fenêtre. Porte la confiance. */
+  rateUpdates: number;
   /** Highest rate seen in the retained history. */
   peakRateUsdPerMin: number;
   /** Consecutive most-recent samples whose rate stayed above `hotThreshold`. */
@@ -71,43 +95,82 @@ export function pushFeePoint(
 }
 
 /**
- * USD/min between two samples for one of the cumulative counters.
+ * Fenêtre adaptative : remonte depuis `endIdx` jusqu'à capter assez de sauts du
+ * compteur pour que la division soit significative.
  *
- * Negative deltas are clamped to zero: both counters only ever increase, so a
- * drop means the API served a stale value, and a negative rate would be
- * nonsense followed by a phantom spike once it catches up.
+ * Trois conditions d'arrêt : assez de sauts (`minUpdates`), assez de temps
+ * (`minSpanMs`), et jamais au-delà de `maxWindowMs`. Les deux premières évitent
+ * de diviser l'accumulé d'une minute par 12 s ; la troisième évite qu'une pool
+ * inerte moyenne sur toute son histoire.
+ *
+ * C'est ce qui rend la mesure ADAPTATIVE : sur une pool qui s'emballe les sauts
+ * s'enchaînent, la fenêtre se referme et le chiffre grimpe vite ; sur une pool
+ * calme elle s'étire et le chiffre cesse de clignoter.
+ *
+ * Les deltas négatifs sont ignorés : les compteurs ne font que croître, une
+ * baisse signale une lecture périmée.
  */
-function rateBetween(a: FeePoint, b: FeePoint, field: "cumFees" | "cumVolume"): number {
-  const dtMin = (b.ts - a.ts) / 60_000;
-  if (dtMin <= 0) return 0;
-  const rate = (b[field] - a[field]) / dtMin;
-  return rate > 0 ? rate : 0;
+function windowedRate(
+  history: readonly FeePoint[],
+  endIdx: number,
+  field: "cumFees" | "cumVolume",
+  cfg: RateWindowConfig,
+): { rate: number; spanMs: number; updates: number } {
+  const end = history[endIdx];
+  if (!end || endIdx <= 0) return { rate: 0, spanMs: 0, updates: 0 };
+
+  let start = endIdx;
+  let updates = 0;
+  for (let i = endIdx; i > 0; i -= 1) {
+    const prev = history[i - 1]!;
+    if (end.ts - prev.ts > cfg.maxWindowMs) break;
+    if (history[i]![field] - prev[field] > 0) updates += 1;
+    start = i - 1;
+    if (updates >= cfg.minUpdates && end.ts - prev.ts >= cfg.minSpanMs) break;
+  }
+
+  const anchor = history[start]!;
+  const spanMs = end.ts - anchor.ts;
+  if (spanMs <= 0) return { rate: 0, spanMs: 0, updates };
+  const delta = end[field] - anchor[field];
+  return { rate: delta > 0 ? delta / (spanMs / 60_000) : 0, spanMs, updates };
 }
 
 export function deriveMetrics(
   history: readonly FeePoint[],
   hotThreshold = 0,
+  cfg: RateWindowConfig = DEFAULT_RATE_WINDOW,
 ): DerivedMetrics | undefined {
   if (history.length < 2) return undefined;
 
+  // Taux fenêtré à chaque indice : la sparkline doit raconter la même histoire
+  // que le chiffre affiché à côté d'elle.
   const rateSeries: number[] = [];
   for (let i = 1; i < history.length; i += 1) {
-    rateSeries.push(rateBetween(history[i - 1]!, history[i]!, "cumFees"));
+    rateSeries.push(windowedRate(history, i, "cumFees", cfg).rate);
   }
 
-  const curr = history[history.length - 1]!;
-  const prev = history[history.length - 2]!;
-  const feeRateUsdPerMin = rateSeries[rateSeries.length - 1] ?? 0;
-  const volumeRateUsdPerMin = rateBetween(prev, curr, "cumVolume");
+  const last = history.length - 1;
+  const fee = windowedRate(history, last, "cumFees", cfg);
+  const vol = windowedRate(history, last, "cumVolume", cfg);
+  const curr = history[last]!;
+
+  const feeRateUsdPerMin = fee.rate;
+  const volumeRateUsdPerMin = vol.rate;
 
   const tvl = curr.tvl > 0 ? curr.tvl : 0;
   const heatPctPerHour = tvl > 0 ? ((feeRateUsdPerMin * 60) / tvl) * 100 : 0;
 
+  // Accélération : comparer la fenêtre courante à celle qui se terminait au
+  // début de la fenêtre courante. Comparer deux intervalles bruts revenait à
+  // dériver le bruit d'échantillonnage.
   let feeAccel = 0;
-  if (rateSeries.length >= 2) {
-    const prevRate = rateSeries[rateSeries.length - 2]!;
-    const dtMin = (curr.ts - prev.ts) / 60_000;
-    if (dtMin > 0) feeAccel = (feeRateUsdPerMin - prevRate) / dtMin;
+  let anchorIdx = last;
+  while (anchorIdx > 0 && curr.ts - history[anchorIdx]!.ts < fee.spanMs) anchorIdx -= 1;
+  if (anchorIdx > 0) {
+    const before = windowedRate(history, anchorIdx, "cumFees", cfg);
+    const dtMin = (curr.ts - history[anchorIdx]!.ts) / 60_000;
+    if (dtMin > 0) feeAccel = (feeRateUsdPerMin - before.rate) / dtMin;
   }
 
   const peakRateUsdPerMin = rateSeries.reduce((m, r) => (r > m ? r : m), 0);
@@ -124,10 +187,25 @@ export function deriveMetrics(
     heatPctPerHour,
     feeAccel,
     sampleCount: history.length,
+    rateSpanMs: fee.spanMs,
+    rateUpdates: fee.updates,
     peakRateUsdPerMin,
     hotStreak,
     rateSeries,
   };
+}
+
+/**
+ * Le taux est-il assez étayé pour être lu sans réserve ?
+ *
+ * Choix explicite : l'UI affiche tôt plutôt que de masquer, mais marque la
+ * valeur quand cette fonction renvoie false.
+ */
+export function isRateReliable(
+  m: { rateSpanMs: number; rateUpdates: number },
+  cfg: RateWindowConfig = DEFAULT_RATE_WINDOW,
+): boolean {
+  return m.rateUpdates >= cfg.minUpdates && m.rateSpanMs >= cfg.minSpanMs;
 }
 
 /**

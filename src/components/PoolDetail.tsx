@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { heatTier, signalCoverage, MIN_SIGNAL_COVERAGE } from "@/data/metrics";
+import { heatTier, isRateReliable, signalCoverage, MIN_SIGNAL_COVERAGE } from "@/data/metrics";
 import { TokenLinksVerbose } from "@/components/TokenLinks";
 import {
   fmtAge,
@@ -190,7 +190,18 @@ export function PoolDetail({ address, onClose }: { address: string; onClose: () 
                 <Grid
                   items={[
                     ["Heat", fmtPct(p.heatPctHr, 2) + "/h", heatTier(p.heatPctHr) !== "inert"],
-                    ["Taux de fees", fmtRate(p.feeRateUsdMin) + "/min", true],
+                    [
+                      "Taux de fees",
+                      fmtRate(p.feeRateUsdMin) + "/min",
+                      isRateReliable(p),
+                    ],
+                    [
+                      "Fenêtre du taux",
+                      p.rateSpanMs > 0
+                        ? `${Math.round(p.rateSpanMs / 1000)} s · ${p.rateUpdates} maj`
+                        : "—",
+                      false,
+                    ],
                     ["Volume", fmtRate(p.volumeRateUsdMin) + "/min", p.volumeRateUsdMin > 0],
                     ["TVL", fmtUsd(p.tvl)],
                     ["Prix", fmtPrice(p.price)],

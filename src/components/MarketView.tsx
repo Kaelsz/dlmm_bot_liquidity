@@ -110,9 +110,11 @@ export function MarketView({ initial }: { initial: PoolsResponse }) {
       {selected ? <PoolDetail address={selected} onClose={closeDetail} /> : null}
 
       <footer className="border-t border-line bg-surface px-3 py-1 text-[10px] text-fg-faint">
-        Heat = part du TVL versée en fees par heure, dérivée de Δfees cumulées entre deux
-        échantillons. $/min = taux instantané. Les deux se calculent à la minute — les APIs Meteora
-        n&apos;exposent rien de plus fin que 30 min.
+        Heat = part du TVL versée en fees par heure, dérivée de Δfees cumulées sur une fenêtre
+        glissante. Le compteur de Meteora ne bouge que par sauts (~1/min) : la fenêtre remonte
+        jusqu&apos;à en capter trois, donc elle se resserre sur une pool active et s&apos;étire sur une
+        pool calme. Les valeurs grisées reposent sur une fenêtre encore incomplète. Résolution bien
+        au-delà des 30 min, seul pas exposé par les APIs.
       </footer>
     </div>
   );

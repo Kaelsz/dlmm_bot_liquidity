@@ -285,7 +285,7 @@ export class Collector {
         this.history.set(k, next);
         this.db.insertSample(p, now, source);
 
-        const m = deriveMetrics(next);
+        const m = deriveMetrics(next, 0, config.collector.rate);
         if (m) this.db.upsertMetrics(p, m, now, 60);
       }
     });

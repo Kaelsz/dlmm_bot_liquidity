@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HeatCell } from "@/components/HeatCell";
-import { Num, SignedNum } from "@/components/Num";
+import { Num, SignedNum , Tentative } from "@/components/Num";
 import { SafetyBadge } from "@/components/SafetyBadge";
 import { Sparkline } from "@/components/Sparkline";
 import { TokenLinks } from "@/components/TokenLinks";
 import { fmtAge, fmtInt, fmtPct, fmtPrice, fmtRate, fmtUsd, splitPairName } from "@/lib/format";
+import { isRateReliable } from "@/data/metrics";
 import type { PoolRow } from "@/lib/api-types";
 
 const COLS = [
@@ -37,6 +38,10 @@ const SORT_FOR_COL: Partial<Record<string, SortKey>> = {
   volume: "volume",
   age: "age",
 };
+
+
+/** Fenêtre pas encore remplie : la valeur s'affiche mais se lit avec réserve. */
+const lowConf = (r: PoolRow): boolean => !isRateReliable(r);
 
 export function MarketTable({
   rows,
@@ -121,15 +126,21 @@ export function MarketTable({
             </td>
 
             <td className="px-1">
-              <HeatCell value={r.heatPctHr} />
+              <Tentative low={lowConf(r)} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
+                <HeatCell value={r.heatPctHr} />
+              </Tentative>
             </td>
 
             <td className="px-2">
-              <Num value={r.feeRateUsdMin} format={fmtRate} className="font-semibold text-fg" />
+              <Tentative low={lowConf(r)} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
+                <Num value={r.feeRateUsdMin} format={fmtRate} className="font-semibold text-fg" />
+              </Tentative>
             </td>
 
             <td className="px-2">
-              <Num value={r.volumeRateUsdMin} format={fmtRate} className="text-fg-dim" />
+              <Tentative low={lowConf(r)} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
+                <Num value={r.volumeRateUsdMin} format={fmtRate} className="text-fg-dim" />
+              </Tentative>
             </td>
 
             <td className="px-2">

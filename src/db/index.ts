@@ -48,6 +48,8 @@ export interface LeaderboardRow {
   ts: number;
   feeRateUsdMin: number;
   volumeRateUsdMin: number;
+  rateSpanMs: number;
+  rateUpdates: number;
   heatPctHr: number;
   feeAccel: number;
   hotStreak: number;
@@ -94,6 +96,7 @@ const LEADERBOARD_SELECT = `
     m.sample_count AS sampleCount, m.sparkline_json AS sparklineJson,
     m.tvl, m.price, m.volume_30m AS volume30m, m.fees_30m AS fees30m,
     m.volume_rate_usd_min AS volumeRateUsdMin,
+    m.rate_span_ms AS rateSpanMs, m.rate_updates AS rateUpdates,
     m.fee_tvl_30m_pct AS feeTvl30mPct, m.fee_tvl_24h_pct AS feeTvl24hPct,
     m.dynamic_fee_pct AS dynamicFeePct, m.apy_pct AS apyPct
   FROM pool_metrics m
@@ -226,19 +229,22 @@ export class RadarDb {
 
   private static readonly UPSERT_METRICS = `
     INSERT INTO pool_metrics (
-      pool_address, ts, fee_rate_usd_min, volume_rate_usd_min, heat_pct_hr, fee_accel,
+      pool_address, ts, fee_rate_usd_min, volume_rate_usd_min,
+      rate_span_ms, rate_updates, heat_pct_hr, fee_accel,
       peak_rate_usd_min, hot_streak, sample_count, sparkline_json,
       tvl, price, volume_30m, fees_30m, fee_tvl_30m_pct, fee_tvl_24h_pct,
       dynamic_fee_pct, apy_pct, reserve_x_amount, reserve_y_amount
     ) VALUES (
-      @poolAddress, @ts, @feeRate, @volumeRate, @heat, @accel,
+      @poolAddress, @ts, @feeRate, @volumeRate,
+      @rateSpanMs, @rateUpdates, @heat, @accel,
       @peakRate, @hotStreak, @sampleCount, @sparkline,
       @tvl, @price, @volume30m, @fees30m, @feeTvl30mPct, @feeTvl24hPct,
       @dynamicFeePct, @apyPct, @reserveX, @reserveY
     )
     ON CONFLICT(pool_address) DO UPDATE SET
       ts = @ts, fee_rate_usd_min = @feeRate,
-      volume_rate_usd_min = @volumeRate, heat_pct_hr = @heat,
+      volume_rate_usd_min = @volumeRate,
+      rate_span_ms = @rateSpanMs, rate_updates = @rateUpdates, heat_pct_hr = @heat,
       fee_accel = @accel, peak_rate_usd_min = @peakRate,
       hot_streak = @hotStreak, sample_count = @sampleCount,
       sparkline_json = @sparkline, tvl = @tvl, price = @price,
@@ -255,6 +261,8 @@ export class RadarDb {
       ts,
       feeRate: m.feeRateUsdPerMin,
       volumeRate: m.volumeRateUsdPerMin,
+      rateSpanMs: m.rateSpanMs,
+      rateUpdates: m.rateUpdates,
       heat: m.heatPctPerHour,
       accel: m.feeAccel,
       peakRate: m.peakRateUsdPerMin,

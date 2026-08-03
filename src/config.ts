@@ -69,6 +69,30 @@ export const config = {
 
     /** Rolling fee history kept in memory per pool (points). */
     historyPoints: 60,
+
+    /**
+     * Fenêtre de dérivation du taux de fees.
+     *
+     * MESURÉ sur l'API : `cumulative_metrics.fees` n'augmente pas de façon
+     * continue, il saute environ une fois par minute (20 intervalles nuls sur
+     * 23 lectures à 5 s d'écart, sur la pool la plus active du marché).
+     *
+     * Dériver sur le seul dernier couple d'échantillons donne donc soit 0,
+     * soit l'accumulé d'une minute divisé par 12 s — jamais le vrai débit.
+     *
+     * On remonte donc jusqu'à capter `minUpdates` sauts. La fenêtre est
+     * ADAPTATIVE : elle se referme quand les sauts s'enchaînent (pool qui
+     * s'emballe → chiffre réactif) et s'étire quand ils s'espacent (pool calme
+     * → chiffre stable). La réactivité suit l'activité, pas la cadence de
+     * sondage.
+     */
+    rate: {
+      minUpdates: 3,
+      /** Plancher : sous ça, la division amplifie le bruit d'échantillonnage. */
+      minSpanMs: 45_000,
+      /** Plafond : une pool inerte ne doit pas moyenner indéfiniment. */
+      maxWindowMs: 600_000,
+    },
     /** Raw samples retention. */
     sampleRetentionMs: 6 * 3_600_000,
   },

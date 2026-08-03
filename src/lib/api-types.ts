@@ -37,6 +37,10 @@ export interface PoolRow {
   feeRateUsdMin: number;
   /** Derived volume rate. Empty until two samples exist, unlike volume30m. */
   volumeRateUsdMin: number;
+  /** Portée de la fenêtre ayant produit les taux, et nombre de sauts captés.
+   *  L'UI s'en sert pour marquer une estimation encore peu étayée. */
+  rateSpanMs: number;
+  rateUpdates: number;
   heatPctHr: number;
   feeAccel: number;
   hotStreak: number;
@@ -130,6 +134,8 @@ export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {
     ts: r.ts,
     feeRateUsdMin: r.feeRateUsdMin,
     volumeRateUsdMin: r.volumeRateUsdMin,
+    rateSpanMs: r.rateSpanMs,
+    rateUpdates: r.rateUpdates,
     heatPctHr: r.heatPctHr,
     feeAccel: r.feeAccel,
     hotStreak: r.hotStreak,
