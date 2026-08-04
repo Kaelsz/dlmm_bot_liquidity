@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { AmountFilter } from "@/components/AmountFilter";
 import { MarketTable, type SortKey } from "@/components/MarketTable";
 import { Nav } from "@/components/Nav";
 import { PoolDetail } from "@/components/PoolDetailLazy";
@@ -9,13 +10,23 @@ import { useLiveRows } from "@/lib/useLiveRows";
 import type { PoolsResponse } from "@/lib/api-types";
 
 interface Filters {
-  minTvl: number;
+  minTvl: number | null;
+  maxTvl: number | null;
   minHeat: number;
   protocol: "" | "dlmm" | "damm_v2";
   maxAgeMinutes: number | "";
 }
 
-const DEFAULT_FILTERS: Filters = { minTvl: 5_000, minHeat: 0, protocol: "", maxAgeMinutes: "" };
+const DEFAULT_FILTERS: Filters = {
+  minTvl: 5_000,
+  maxTvl: null,
+  minHeat: 0,
+  protocol: "",
+  maxAgeMinutes: "",
+};
+
+/** Valeurs proposées dans les deux champs TVL. La saisie reste libre. */
+const TVL_PRESETS = [0, 500, 5_000, 50_000, 500_000, 5_000_000] as const;
 
 export function MarketView({ initial }: { initial: PoolsResponse }) {
   const [sort, setSort] = useState<SortKey>("heat");
@@ -25,12 +36,18 @@ export function MarketView({ initial }: { initial: PoolsResponse }) {
 
   const buildQuery = useCallback(() => {
     const q = new URLSearchParams({ sort, limit: "100" });
-    if (filters.minTvl > 0) q.set("minTvl", String(filters.minTvl));
+    if (filters.minTvl !== null && filters.minTvl > 0) q.set("minTvl", String(filters.minTvl));
+    if (filters.maxTvl !== null) q.set("maxTvl", String(filters.maxTvl));
     if (filters.minHeat > 0) q.set("minHeat", String(filters.minHeat));
     if (filters.protocol) q.set("protocol", filters.protocol);
     if (filters.maxAgeMinutes !== "") q.set("maxAgeMinutes", String(filters.maxAgeMinutes));
     return q;
   }, [sort, filters]);
+
+  // Un intervalle vide renverrait zéro ligne sans rien expliquer : mieux vaut
+  // dire pourquoi le tableau est vide que laisser croire à une panne.
+  const inverted =
+    filters.maxTvl !== null && filters.minTvl !== null && filters.maxTvl < filters.minTvl;
 
   const { rows, counts, lastUpdate, live, error, now, refresh } = useLiveRows(
     "/api/pools",
@@ -47,17 +64,17 @@ export function MarketView({ initial }: { initial: PoolsResponse }) {
       <Nav counts={counts} lastUpdate={lastUpdate} live={live} now={now} />
 
       <div className="flex items-center gap-3 border-b border-line bg-app px-3 py-1.5 text-[11px]">
-        <Select
+        <AmountFilter
           label="TVL min"
           value={filters.minTvl}
-          onChange={(v) => setFilters((f) => ({ ...f, minTvl: Number(v) }))}
-          options={[
-            [0, "tout"],
-            [500, "$500"],
-            [5_000, "$5k"],
-            [50_000, "$50k"],
-            [500_000, "$500k"],
-          ]}
+          onCommit={(v) => setFilters((f) => ({ ...f, minTvl: v }))}
+          presets={[...TVL_PRESETS]}
+        />
+        <AmountFilter
+          label="TVL max"
+          value={filters.maxTvl}
+          onCommit={(v) => setFilters((f) => ({ ...f, maxTvl: v }))}
+          presets={[...TVL_PRESETS].slice(1)}
         />
         <Select
           label="Heat min"
@@ -94,6 +111,11 @@ export function MarketView({ initial }: { initial: PoolsResponse }) {
             [1440, "24 h"],
           ]}
         />
+        {inverted ? (
+          <span className="text-warn" title="Aucune pool ne peut satisfaire les deux bornes">
+            ⚠ TVL max inférieur au min
+          </span>
+        ) : null}
         {error ? <span className="ml-auto text-down">⚠ {error}</span> : null}
       </div>
 

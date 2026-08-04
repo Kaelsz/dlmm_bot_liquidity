@@ -90,6 +90,45 @@ export function fmtAxisTime(ts: number, spanMs: number): string {
   return d.toLocaleTimeString(FR, { hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * Lit un montant saisi à la main dans un filtre.
+ *
+ * Trois retours distincts, et la distinction compte : `null` veut dire « pas de
+ * filtre » (champ vide) tandis que `undefined` veut dire « saisie invalide » —
+ * les deux ne doivent pas produire le même comportement, sinon une faute de
+ * frappe désactiverait silencieusement le filtre.
+ *
+ * Accepte ce qu'on tape réellement : `5k`, `$50 000`, `1,5M`, `2.5K`.
+ */
+export function parseAmount(input: string): number | null | undefined {
+  const raw = input.trim();
+  if (raw === "") return null;
+
+  // Retire le symbole monétaire et les séparateurs de milliers (espaces fines
+  // insécables comprises : c'est ce que produit un copier-coller depuis l'UI).
+  const cleaned = raw
+    .replace(/[$\s\u00a0\u202f]/g, "")
+    .replace(/,(?=\d{3}\b)/g, "")
+    .replace(",", ".");
+
+  const m = /^(\d+(?:\.\d+)?)([kKmM]?)$/.exec(cleaned);
+  if (!m) return undefined;
+
+  const n = Number(m[1]);
+  if (!Number.isFinite(n)) return undefined;
+  const mult = m[2]?.toLowerCase() === "k" ? 1_000 : m[2]?.toLowerCase() === "m" ? 1_000_000 : 1;
+  return n * mult;
+}
+
+/** Rend un montant sous la forme compacte qu'on retape ensuite sans friction. */
+export function fmtAmountInput(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return "";
+  if (v === 0) return "0";
+  if (v >= 1_000_000 && v % 100_000 === 0) return `${v / 1_000_000}M`;
+  if (v >= 1_000 && v % 100 === 0) return `${v / 1_000}k`;
+  return String(v);
+}
+
 /** Strips the quote suffix so the base token can be emphasised on its own. */
 export function splitPairName(name: string): { base: string; quote: string } {
   const i = name.lastIndexOf("-");
