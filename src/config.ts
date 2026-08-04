@@ -17,6 +17,17 @@ export const config = {
     dbPath: process.env.DB_PATH ?? "data/radar.db",
   },
 
+  chain: {
+    /**
+     * Endpoint RPC Solana, lu côté serveur uniquement — la clé ne doit jamais
+     * atteindre le navigateur. Sans elle, la vue Positions le dit au lieu
+     * d'échouer : le reste du dashboard n'en dépend pas.
+     */
+    rpcUrl: process.env.RPC_URL ?? "",
+    /** Rafraîchissement des positions des wallets suivis. */
+    positionsIntervalMs: num(process.env.POSITIONS_INTERVAL_MS, 60_000),
+  },
+
   log: {
     level: (process.env.LOG_LEVEL ?? "info") as "trace" | "debug" | "info" | "warn" | "error",
   },

@@ -29,6 +29,40 @@ export const MIGRATIONS: string[] = [
 ];
 
 export const SCHEMA = `
+-- Wallets dont on suit les positions. Une adresse publique n'est pas un secret,
+-- mais le dashboard n'a pas d'authentification propre : c'est basic_auth qui
+-- protège l'accès (cf. DEPLOY.md).
+CREATE TABLE IF NOT EXISTS tracked_wallets (
+  owner       TEXT PRIMARY KEY,
+  added_at    INTEGER NOT NULL,
+  last_sync_at INTEGER
+);
+
+-- Positions vues au moins une fois. closed_at non nul = la position a disparu
+-- de la chaîne, donc elle a été fermée.
+CREATE TABLE IF NOT EXISTS wallet_positions (
+  position_address TEXT PRIMARY KEY,
+  owner            TEXT NOT NULL,
+  pool_address     TEXT NOT NULL,
+  pool_name        TEXT NOT NULL DEFAULT '',
+  first_seen_at    INTEGER NOT NULL,
+  last_seen_at     INTEGER NOT NULL,
+  closed_at        INTEGER,
+  -- Capital engagé et sorti, reconstitués depuis les variations de parts.
+  deposited_usd    REAL NOT NULL DEFAULT 0,
+  withdrawn_usd    REAL NOT NULL DEFAULT 0,
+  total_shares     REAL NOT NULL DEFAULT 0,
+  -- Dernier état connu.
+  value_usd        REAL NOT NULL DEFAULT 0,
+  claimed_fee_usd  REAL NOT NULL DEFAULT 0,
+  unclaimed_fee_usd REAL NOT NULL DEFAULT 0,
+  lower_bin_id     INTEGER NOT NULL DEFAULT 0,
+  upper_bin_id     INTEGER NOT NULL DEFAULT 0,
+  in_range         INTEGER NOT NULL DEFAULT 0,
+  valued           INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_positions_owner ON wallet_positions(owner, closed_at);
+
 CREATE TABLE IF NOT EXISTS pools (
   address                   TEXT PRIMARY KEY,
   protocol                  TEXT NOT NULL,

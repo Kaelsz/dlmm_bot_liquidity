@@ -16,9 +16,11 @@ export function Nav({
   live,
   now,
 }: {
-  counts: { pools: number; samples: number; metrics: number };
-  lastUpdate: number;
-  live: boolean;
+  // Optionnels : la vue Positions n'a ni compteur de collecte ni flux SSE,
+  // et afficher « hors ligne » y serait un faux signal d'alerte.
+  counts?: { pools: number; samples: number; metrics: number } | null;
+  lastUpdate?: number | null;
+  live?: boolean;
   now: number | null;
 }) {
   const pathname = usePathname();
@@ -48,20 +50,24 @@ export function Nav({
         })}
       </nav>
 
-      <div className="ml-auto flex items-center gap-4 text-[11px] text-fg-faint">
-        <span title="pools suivies · mesures stockées">
-          <span className="tnum text-fg-dim">{fmtInt(counts.metrics)}</span> pools ·{" "}
-          <span className="tnum text-fg-dim">{fmtInt(counts.samples)}</span> mesures
-        </span>
-        <span className="tnum">{fmtSince(lastUpdate, now ?? lastUpdate)}</span>
-        <span
-          className="flex items-center gap-1.5"
-          title={live ? "flux live actif" : "flux interrompu"}
-        >
-          <span className={`inline-block h-1.5 w-1.5 rounded-full ${live ? "bg-up" : "bg-down"}`} />
-          {live ? "live" : "hors ligne"}
-        </span>
-      </div>
+      {counts && lastUpdate ? (
+        <div className="ml-auto flex items-center gap-4 text-[11px] text-fg-faint">
+          <span title="pools suivies · mesures stockées">
+            <span className="tnum text-fg-dim">{fmtInt(counts.metrics)}</span> pools ·{" "}
+            <span className="tnum text-fg-dim">{fmtInt(counts.samples)}</span> mesures
+          </span>
+          <span className="tnum">{fmtSince(lastUpdate, now ?? lastUpdate)}</span>
+          <span
+            className="flex items-center gap-1.5"
+            title={live ? "flux live actif" : "flux interrompu"}
+          >
+            <span
+              className={`inline-block h-1.5 w-1.5 rounded-full ${live ? "bg-up" : "bg-down"}`}
+            />
+            {live ? "live" : "hors ligne"}
+          </span>
+        </div>
+      ) : null}
     </header>
   );
 }

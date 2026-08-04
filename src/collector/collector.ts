@@ -4,6 +4,8 @@ import { ALL_APIS, apiFor, dammV2Api, dlmmApi } from "@/data/client";
 import { deriveMetrics, pushFeePoint, type FeePoint } from "@/data/metrics";
 import { fetchRugcheck, isTrustedMint } from "@/data/rugcheck";
 import { getDb, type RadarDb } from "@/db";
+import { isChainConfigured } from "@/chain/positions";
+import { syncWallet } from "@/chain/sync";
 import { logger } from "@/lib/logger";
 import type { PoolView, SortSpec } from "@/types/meteora";
 
@@ -18,8 +20,8 @@ interface HotEntry {
 export interface CollectorStatus {
   running: boolean;
   startedAt: number | null;
-  cycles: { discovery: number; newPools: number; hotSet: number };
-  lastCycleAt: { discovery: number | null; newPools: number | null; hotSet: number | null };
+  cycles: { discovery: number; newPools: number; hotSet: number; positions: number };
+  lastCycleAt: { discovery: number | null; newPools: number | null; hotSet: number | null; positions: number | null };
   hotSetSize: number;
   trackedPools: number;
   errors: number;
@@ -55,10 +57,11 @@ export class Collector {
   private running = false;
   private startedAt: number | null = null;
   private errors = 0;
-  private readonly cycles = { discovery: 0, newPools: 0, hotSet: 0 };
+  private readonly cycles = { discovery: 0, newPools: 0, hotSet: 0, positions: 0 };
   private readonly lastCycleAt: CollectorStatus["lastCycleAt"] = {
     discovery: null,
     newPools: null,
+    positions: null,
     hotSet: null,
   };
 
@@ -82,6 +85,14 @@ export class Collector {
     this.every(config.collector.discoveryIntervalMs, () =>
       this.safe("discovery", () => this.runDiscovery()),
     );
+    // Les wallets suivis sont rafraîchis même quand personne ne regarde :
+    // c'est ce qui permet de détecter une fermeture de position, invisible
+    // autrement puisque le compte on-chain disparaît.
+    if (isChainConfigured()) {
+      this.every(config.chain.positionsIntervalMs, () =>
+        this.safe("positions", () => this.runPositions()),
+      );
+    }
     this.every(config.collector.newPoolsIntervalMs, () =>
       this.safe("newPools", () => this.runNewPools()),
     );
@@ -291,6 +302,16 @@ export class Collector {
     });
     write([...unique.values()]);
     return unique.size;
+  }
+
+  private async runPositions(): Promise<void> {
+    for (const owner of this.db.trackedWallets()) {
+      try {
+        await syncWallet(owner);
+      } catch (err) {
+        logger.debug({ owner, err }, "synchronisation périodique échouée");
+      }
+    }
   }
 
   /** Top pools by derived heat always deserve fine-grained polling. */

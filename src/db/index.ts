@@ -64,6 +64,26 @@ export interface LeaderboardRow {
   apyPct: number | null;
 }
 
+export interface PositionRow {
+  positionAddress: string;
+  owner: string;
+  poolAddress: string;
+  poolName: string;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  closedAt: number | null;
+  depositedUsd: number;
+  withdrawnUsd: number;
+  totalShares: number;
+  valueUsd: number;
+  claimedFeeUsd: number;
+  unclaimedFeeUsd: number;
+  lowerBinId: number;
+  upperBinId: number;
+  inRange: number;
+  valued: number;
+}
+
 export interface LeaderboardFilters {
   minTvl?: number;
   maxTvl?: number;
@@ -361,6 +381,74 @@ export class RadarDb {
          LIMIT @limit`,
       )
       .all(params) as LeaderboardRow[];
+  }
+
+  // ---- positions ---------------------------------------------------------
+
+  trackWallet(owner: string): void {
+    this.db
+      .prepare(`INSERT OR IGNORE INTO tracked_wallets (owner, added_at) VALUES (?, ?)`)
+      .run(owner, Date.now());
+  }
+
+  trackedWallets(): string[] {
+    return (this.db.prepare(`SELECT owner FROM tracked_wallets`).all() as Array<{ owner: string }>)
+      .map((r) => r.owner);
+  }
+
+  markWalletSynced(owner: string, ts = Date.now()): void {
+    this.db.prepare(`UPDATE tracked_wallets SET last_sync_at = ? WHERE owner = ?`).run(ts, owner);
+  }
+
+  positionsFor(owner: string): PositionRow[] {
+    return this.db
+      .prepare(
+        `SELECT position_address AS positionAddress, owner, pool_address AS poolAddress,
+                pool_name AS poolName, first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt,
+                closed_at AS closedAt, deposited_usd AS depositedUsd,
+                withdrawn_usd AS withdrawnUsd, total_shares AS totalShares,
+                value_usd AS valueUsd, claimed_fee_usd AS claimedFeeUsd,
+                unclaimed_fee_usd AS unclaimedFeeUsd, lower_bin_id AS lowerBinId,
+                upper_bin_id AS upperBinId, in_range AS inRange, valued
+           FROM wallet_positions WHERE owner = ?
+          ORDER BY closed_at IS NOT NULL, last_seen_at DESC`,
+      )
+      .all(owner) as PositionRow[];
+  }
+
+  private static readonly UPSERT_POSITION = `
+    INSERT INTO wallet_positions (
+      position_address, owner, pool_address, pool_name, first_seen_at, last_seen_at,
+      deposited_usd, withdrawn_usd, total_shares, value_usd, claimed_fee_usd,
+      unclaimed_fee_usd, lower_bin_id, upper_bin_id, in_range, valued
+    ) VALUES (
+      @positionAddress, @owner, @poolAddress, @poolName, @ts, @ts,
+      @depositedUsd, @withdrawnUsd, @totalShares, @valueUsd, @claimedFeeUsd,
+      @unclaimedFeeUsd, @lowerBinId, @upperBinId, @inRange, @valued
+    )
+    ON CONFLICT(position_address) DO UPDATE SET
+      last_seen_at = @ts, closed_at = NULL, pool_name = @poolName,
+      deposited_usd = @depositedUsd, withdrawn_usd = @withdrawnUsd,
+      total_shares = @totalShares, value_usd = @valueUsd,
+      claimed_fee_usd = @claimedFeeUsd, unclaimed_fee_usd = @unclaimedFeeUsd,
+      lower_bin_id = @lowerBinId, upper_bin_id = @upperBinId,
+      in_range = @inRange, valued = @valued
+  `;
+
+  upsertPosition(r: Omit<PositionRow, "firstSeenAt" | "lastSeenAt" | "closedAt">, ts: number): void {
+    this.stmt(RadarDb.UPSERT_POSITION).run({ ...r, ts });
+  }
+
+  /** Marque fermées les positions du wallet absentes du dernier relevé. */
+  closeMissingPositions(owner: string, seen: string[], ts: number): number {
+    const ph = seen.length ? seen.map(() => "?").join(",") : "''";
+    return this.db
+      .prepare(
+        `UPDATE wallet_positions SET closed_at = ?
+          WHERE owner = ? AND closed_at IS NULL
+            AND position_address NOT IN (${ph})`,
+      )
+      .run(ts, owner, ...seen).changes;
   }
 
   // ---- rugcheck ----------------------------------------------------------
