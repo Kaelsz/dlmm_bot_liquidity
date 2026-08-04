@@ -6,7 +6,7 @@ import { fmtInt, fmtSince } from "@/lib/format";
 
 const TABS = [
   { href: "/", label: "Marché" },
-  { href: "/nouvelles", label: "Nouvelles pools" },
+  { href: "/positions", label: "Positions" },
 ] as const;
 
 /** Shared header: identity, view switcher, and live status on the right. */

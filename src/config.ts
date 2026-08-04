@@ -122,9 +122,6 @@ export const config = {
    * exposes them and the collector stores everything it sees.
    */
   display: {
-    /** Anti-dust default on the new-pools view: TVL above OR 30m volume above. */
-    newPoolMinTvlUsd: 500,
-    newPoolMinVolume30mUsd: 1_000,
     leaderboardSize: 100,
   },
 } as const;

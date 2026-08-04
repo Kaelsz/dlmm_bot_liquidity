@@ -363,43 +363,6 @@ export class RadarDb {
       .all(params) as LeaderboardRow[];
   }
 
-  /**
-   * Freshly created pools, newest first.
-   *
-   * Separate from `leaderboard` because the filter is a disjunction: a pool
-   * three minutes old may have almost no TVL yet still be trading heavily, or
-   * hold real liquidity while nobody has touched it. Either is interesting;
-   * neither survives the AND-shaped filters of the market view. Meteora lists
-   * ~250k pools and most new ones are dust, so some floor is mandatory.
-   */
-  newPools(opts: {
-    maxAgeMinutes: number;
-    minTvl: number;
-    minVolume30m: number;
-    limit: number;
-    protocol?: "dlmm" | "damm_v2";
-  }): LeaderboardRow[] {
-    const where: string[] = ["p.created_at > @minCreatedAt", "(m.tvl >= @minTvl OR m.volume_30m >= @minVol)"];
-    const params: Record<string, unknown> = {
-      minCreatedAt: Date.now() - opts.maxAgeMinutes * 60_000,
-      minTvl: opts.minTvl,
-      minVol: opts.minVolume30m,
-      limit: opts.limit,
-    };
-    if (opts.protocol) {
-      where.push("p.protocol = @protocol");
-      params.protocol = opts.protocol;
-    }
-    return this.db
-      .prepare(
-        `${LEADERBOARD_SELECT}
-          WHERE ${where.join(" AND ")}
-          ORDER BY p.created_at DESC
-          LIMIT @limit`,
-      )
-      .all(params) as LeaderboardRow[];
-  }
-
   // ---- rugcheck ----------------------------------------------------------
 
   private static readonly UPSERT_RUGCHECK = `

@@ -19,9 +19,12 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "probe": "tsx scripts/probe-api.ts"
+    "probe": "tsx scripts/probe-api.ts",
+    "probe:positions": "tsx scripts/probe-positions.ts"
   },
   "dependencies": {
+    "@meteora-ag/dlmm": "^1.9.14",
+    "@solana/web3.js": "^1.98.4",
     "better-sqlite3": "^11.8.0",
     "next": "^15.1.6",
     "pino": "^9.6.0",
