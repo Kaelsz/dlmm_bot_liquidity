@@ -26,6 +26,7 @@ export const MIGRATIONS: string[] = [
   "ALTER TABLE pool_metrics ADD COLUMN volume_rate_usd_min REAL NOT NULL DEFAULT 0",
   "ALTER TABLE pool_metrics ADD COLUMN rate_span_ms INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE pool_metrics ADD COLUMN rate_updates INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE tracked_wallets ADD COLUMN last_viewed_at INTEGER",
 ];
 
 export const SCHEMA = `
@@ -35,7 +36,11 @@ export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS tracked_wallets (
   owner       TEXT PRIMARY KEY,
   added_at    INTEGER NOT NULL,
-  last_sync_at INTEGER
+  last_sync_at INTEGER,
+  -- Dernière consultation. Le suivi de fond ne garde que les wallets
+  -- réellement regardés : sur un site public, sonder indéfiniment chaque
+  -- adresse tapée par un visiteur viderait le quota RPC.
+  last_viewed_at INTEGER
 );
 
 -- Positions vues au moins une fois. closed_at non nul = la position a disparu

@@ -24,8 +24,19 @@ export const config = {
      * d'échouer : le reste du dashboard n'en dépend pas.
      */
     rpcUrl: process.env.RPC_URL ?? "",
-    /** Rafraîchissement des positions des wallets suivis. */
-    positionsIntervalMs: num(process.env.POSITIONS_INTERVAL_MS, 60_000),
+    /**
+     * Rafraîchissement de fond des wallets suivis. Il ne sert qu'à repérer les
+     * fermetures de positions, invisibles autrement : la fraîcheur immédiate
+     * vient de la synchronisation à l'ouverture de la page. D'où une cadence
+     * lente — le site est public et chaque cycle consomme du quota RPC.
+     */
+    positionsIntervalMs: num(process.env.POSITIONS_INTERVAL_MS, 300_000),
+    /** Nombre maximum de wallets sondés en continu. */
+    maxTrackedWallets: num(process.env.MAX_TRACKED_WALLETS, 20),
+    /** Un wallet non consulté depuis ce délai sort du suivi de fond. */
+    trackedWalletTtlMs: num(process.env.TRACKED_WALLET_TTL_MS, 24 * 3_600_000),
+    /** Limite par IP sur /api/positions. */
+    positionsRateLimit: { max: 12, windowMs: 60_000 },
   },
 
   log: {

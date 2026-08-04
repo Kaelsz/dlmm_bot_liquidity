@@ -4,6 +4,8 @@ import { syncWallet } from "@/chain/sync";
 import { computeRoi } from "@/data/positions";
 import { getDb } from "@/db";
 import { logger } from "@/lib/logger";
+import { clientKey, rateLimit } from "@/lib/ratelimit";
+import { config } from "@/config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,6 +24,17 @@ export async function GET(req: Request): Promise<NextResponse> {
   }
   if (!looksLikeAddress(owner)) {
     return NextResponse.json({ configured: true, positions: [], error: "adresse invalide" }, { status: 400 });
+  }
+
+  // Le site est public et chaque appel déclenche une lecture on-chain : sans
+  // limite, un visiteur peut vider le quota RPC du serveur en bouclant.
+  const { max, windowMs } = config.chain.positionsRateLimit;
+  const rl = rateLimit(`positions:${clientKey(req)}`, max, windowMs);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { configured: true, positions: [], error: "trop de requêtes, réessaie dans un instant" },
+      { status: 429, headers: { "retry-after": String(rl.retryAfterSec) } },
+    );
   }
 
   const db = getDb();

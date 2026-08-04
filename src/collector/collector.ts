@@ -305,7 +305,10 @@ export class Collector {
   }
 
   private async runPositions(): Promise<void> {
-    for (const owner of this.db.trackedWallets()) {
+    for (const owner of this.db.trackedWallets(
+      config.chain.maxTrackedWallets,
+      config.chain.trackedWalletTtlMs,
+    )) {
       try {
         await syncWallet(owner);
       } catch (err) {

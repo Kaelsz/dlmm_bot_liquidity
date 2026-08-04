@@ -385,15 +385,34 @@ export class RadarDb {
 
   // ---- positions ---------------------------------------------------------
 
+  /** Enregistre une consultation. C'est elle qui maintient le wallet suivi. */
   trackWallet(owner: string): void {
+    const now = Date.now();
     this.db
-      .prepare(`INSERT OR IGNORE INTO tracked_wallets (owner, added_at) VALUES (?, ?)`)
-      .run(owner, Date.now());
+      .prepare(
+        `INSERT INTO tracked_wallets (owner, added_at, last_viewed_at) VALUES (?, ?, ?)
+         ON CONFLICT(owner) DO UPDATE SET last_viewed_at = ?`,
+      )
+      .run(owner, now, now, now);
   }
 
-  trackedWallets(): string[] {
-    return (this.db.prepare(`SELECT owner FROM tracked_wallets`).all() as Array<{ owner: string }>)
-      .map((r) => r.owner);
+  /**
+   * Wallets à sonder en fond : les plus récemment consultés, plafonnés.
+   *
+   * Le site est public, donc n'importe qui peut faire enregistrer une adresse.
+   * Sans plafond ni péremption, le collecteur finirait par sonder des
+   * centaines de wallets toutes les cinq minutes aux frais du propriétaire.
+   */
+  trackedWallets(limit: number, ttlMs: number): string[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT owner FROM tracked_wallets
+            WHERE last_viewed_at IS NOT NULL AND last_viewed_at >= ?
+            ORDER BY last_viewed_at DESC LIMIT ?`,
+        )
+        .all(Date.now() - ttlMs, limit) as Array<{ owner: string }>
+    ).map((r) => r.owner);
   }
 
   markWalletSynced(owner: string, ts = Date.now()): void {

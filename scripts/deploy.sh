@@ -24,6 +24,7 @@ REPO_URL="https://github.com/Kaelsz/dlmm_bot_liquidity.git"
 INSTALL_DIR="${HOME}/radar"
 HTTP_USER="radar"
 SITE=""
+SITE_FROM_FLAG=""
 SELF_SIGNED=0
 CHECK_ONLY=0
 HEALTH_TIMEOUT=180
@@ -41,7 +42,7 @@ while [ $# -gt 0 ]; do
     --check) CHECK_ONLY=1; shift ;;
     --dir)   INSTALL_DIR="${2:?--dir attend un chemin}"; shift 2 ;;
     --user)  HTTP_USER="${2:?--user attend un identifiant}"; shift 2 ;;
-    --site)  SITE="${2:?--site attend une adresse}"; shift 2 ;;
+    --site)  SITE="${2:?--site attend une adresse}"; SITE_FROM_FLAG=1; shift 2 ;;
     --self-signed) SELF_SIGNED=1; shift ;;
     -h|--help) sed -n '3,22p' "$0"; exit 0 ;;
     *) die "option inconnue : $1" ;;
@@ -193,7 +194,9 @@ read_env_key() {
 
 if [ -f "$ENVF" ] && grep -q '^RADAR_PASSWORD_HASH=' "$ENVF"; then
   ok "$ENVF existant : mot de passe conservé"
-  EXISTING_SITE="$(read_env_key "$ENVF" RADAR_SITE)"
+  # Une adresse passée en --site l'emporte sur celle déjà enregistrée : sans
+  # ça, changer de domaine était silencieusement sans effet.
+  EXISTING_SITE="$([ -n "$SITE_FROM_FLAG" ] && printf '%s' "$SITE" || read_env_key "$ENVF" RADAR_SITE)"
   EXISTING_HOST="${EXISTING_SITE#https://}"; EXISTING_HOST="${EXISTING_HOST#http://}"; EXISTING_HOST="${EXISTING_HOST%%/*}"
   if printf '%s' "$EXISTING_HOST" | grep -Eq '^[0-9]+(\.[0-9]+){3}$'; then
     # Installation antérieure pointant sur une IP nue : le TLS ne peut pas
@@ -203,8 +206,13 @@ if [ -f "$ENVF" ] && grep -q '^RADAR_PASSWORD_HASH=' "$ENVF"; then
     write_env "$(read_env_key "$ENVF" RADAR_USER)" "$(read_env_key "$ENVF" RADAR_PASSWORD_HASH)" "$SITE"
     ok "adresse remplacée : $SITE"
   elif [ -n "$EXISTING_SITE" ]; then
+    if [ "$EXISTING_SITE" != "$(read_env_key "$ENVF" RADAR_SITE)" ]; then
+      write_env "$(read_env_key "$ENVF" RADAR_USER)" "$(read_env_key "$ENVF" RADAR_PASSWORD_HASH)" "$EXISTING_SITE"
+      ok "adresse changée : $EXISTING_SITE"
+    else
+      ok "adresse du site : $EXISTING_SITE"
+    fi
     SITE="$EXISTING_SITE"
-    ok "adresse du site : $SITE"
   else
     write_env "$(read_env_key "$ENVF" RADAR_USER)" "$(read_env_key "$ENVF" RADAR_PASSWORD_HASH)" "$SITE"
     ok "RADAR_SITE ajouté : $SITE"

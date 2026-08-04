@@ -115,7 +115,41 @@ docker compose up -d
 
 ---
 
-## 3. Variante : avec un nom de domaine
+## 3. Brancher un nom de domaine
+
+Le site est servi sur un nom sslip.io par défaut. Pour passer à ton domaine :
+
+**1. Chez ton registrar**, crée un enregistrement **A** qui pointe sur l'IP du VPS :
+
+```
+Type  Nom   Valeur              TTL
+A     @     116.203.133.235     300
+A     www   116.203.133.235     300      (facultatif)
+```
+
+**2. Attends que ça se propage** — quelques minutes en général. Vérifie depuis le VPS :
+
+```bash
+dig +short mondomaine.com      # doit renvoyer l'IP du VPS
+```
+
+Ne passe pas à l'étape 3 avant que ça réponde : Let's Encrypt valide en interrogeant le domaine,
+et un certificat refusé impose d'attendre avant de réessayer.
+
+**3. Bascule le site** :
+
+```bash
+cd ~/radar && ./scripts/deploy.sh --site https://mondomaine.com
+```
+
+Le port 80 doit rester ouvert : c'est par lui que Let's Encrypt valide. Le script s'en charge.
+
+À la fin, `https://mondomaine.com` répond avec un certificat authentique, sans avertissement.
+L'ancienne adresse sslip.io cesse de fonctionner — c'est voulu, un seul site est servi.
+
+---
+
+## 3 bis. Variante : garder l'adresse par défaut
 
 Si un domaine pointe sur l'IP du VPS, Let's Encrypt peut émettre un vrai certificat et
 l'avertissement disparaît. Il n'y a **rien à réécrire dans le `Caddyfile`** : l'adresse du site

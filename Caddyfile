@@ -21,19 +21,14 @@
 # auto-signé) quand ACME est impossible — machine sans accès entrant, réseau
 # privé. Vide en fonctionnement normal.
 #
-# `basic_auth` (et non `basicauth`) : renommé en Caddy 2.8, image épinglée
-# au-delà dans docker-compose.yml.
-#
-# Les valeurs sont injectées par substitution au chargement `{$VAR}` et non
-# `{env.VAR}` : basic_auth est analysé au chargement, où le placeholder
-# d'exécution n'est pas encore résolu.
+# Le site est PUBLIC : plus d'authentification. Le dashboard n'expose que des
+# données de marché déjà publiques, et /api/positions ne lit que de la donnée
+# on-chain, elle aussi publique. Ce qui doit être protégé, ce n'est pas la
+# lecture mais le QUOTA RPC — c'est fait côté application (limite par IP et
+# plafond de wallets suivis), pas ici.
 
 {$RADAR_SITE} {
 	{$RADAR_TLS_DIRECTIVE}
-
-	basic_auth {
-		{$RADAR_USER} {$RADAR_PASSWORD_HASH}
-	}
 
 	# Caddy ne bufferise pas les réponses en flux : /api/stream (SSE) passe tel
 	# quel, sans l'équivalent du `proxy_buffering off` qu'exige nginx.
