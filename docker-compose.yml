@@ -18,6 +18,11 @@ services:
       DB_PATH: /data/radar.db
       COLLECTOR: "on"
       LOG_LEVEL: info
+    # radar.env porte RPC_URL, lu par l'application pour la vue Positions.
+    # Il était déclaré sur le service caddy uniquement : la variable
+    # n'atteignait donc jamais l'app, qui se croyait sans RPC.
+    env_file:
+      - radar.env
     # SQLite en WAL n'aime pas être tué brutalement pendant un checkpoint.
     stop_grace_period: 30s
 

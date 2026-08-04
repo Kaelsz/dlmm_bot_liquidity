@@ -11,7 +11,6 @@
 #
 #   --check   préflight seul, n'installe et ne modifie rien
 #   --dir D   répertoire d'installation (défaut : ~/radar)
-#   --user U  identifiant HTTP (défaut : radar)
 #   --site S  nom d'hôte servi par Caddy, ex. https://radar.mondomaine.fr.
 #             Par défaut, un nom sslip.io est dérivé de l'IP publique : le TLS
 #             exige un nom d'hôte, une IP nue ne peut pas fonctionner.
@@ -22,7 +21,6 @@ set -euo pipefail
 
 REPO_URL="https://github.com/Kaelsz/dlmm_bot_liquidity.git"
 INSTALL_DIR="${HOME}/radar"
-HTTP_USER="radar"
 SITE=""
 SITE_FROM_FLAG=""
 SELF_SIGNED=0
@@ -41,7 +39,6 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --check) CHECK_ONLY=1; shift ;;
     --dir)   INSTALL_DIR="${2:?--dir attend un chemin}"; shift 2 ;;
-    --user)  HTTP_USER="${2:?--user attend un identifiant}"; shift 2 ;;
     --site)  SITE="${2:?--site attend une adresse}"; SITE_FROM_FLAG=1; shift 2 ;;
     --self-signed) SELF_SIGNED=1; shift ;;
     -h|--help) sed -n '3,22p' "$0"; exit 0 ;;
@@ -158,93 +155,72 @@ esac
 
 # ------------------------------------------------------------------- secret
 
-GENERATED_PASSWORD=""
 ENVF="radar.env"
 
-# Les valeurs sont écrites entre APOSTROPHES SIMPLES. Compose interpole les
-# valeurs d'un env_file : non quotée, `$2a$14$ICFOs…` est amputée en `$2a$14`
-# et l'authentification ne peut plus fonctionner. Seules les apostrophes
-# simples sont littérales.
-write_env() {
+# Lit une clé en retirant un éventuel quotage.
+read_env_key() {
+  grep "^$2=" "$1" 2>/dev/null | head -1 | cut -d= -f2- | sed "s/^['\"]//; s/['\"]\$//"
+}
+
+# Écrit UNE clé sans toucher au reste du fichier.
+#
+# Une réécriture complète effacerait les valeurs ajoutées à la main — RPC_URL
+# en particulier. Les valeurs sont entre APOSTROPHES SIMPLES : Compose
+# interpole aussi les valeurs d'un env_file, et une valeur non quotée
+# contenant `$` serait amputée.
+set_env_key() {
   umask 077
-  TLS_DIRECTIVE=""
-  [ "$SELF_SIGNED" -eq 1 ] && TLS_DIRECTIVE="tls internal"
+  touch "$ENVF"
+  if grep -q "^$1=" "$ENVF"; then
+    tmp="$(mktemp)"
+    grep -v "^$1=" "$ENVF" > "$tmp"
+    printf "%s='%s'\n" "$1" "$2" >> "$tmp"
+    mv "$tmp" "$ENVF"
+  else
+    printf "%s='%s'\n" "$1" "$2" >> "$ENVF"
+  fi
+  chmod 600 "$ENVF"
+}
+
+if [ ! -f "$ENVF" ]; then
+  say "Création de $ENVF"
   cat > "$ENVF" <<EOF
 # Généré par scripts/deploy.sh le $(date -Iseconds).
-# Les apostrophes simples sont OBLIGATOIRES : sans elles, Docker Compose
-# interprète les \$ du hash bcrypt comme des variables et le tronque.
-# Pour changer le mot de passe :
-#   docker run --rm caddy:2-alpine caddy hash-password --plaintext 'nouveau'
-# puis recopier la valeur ci-dessous, entre apostrophes, et relancer ce script.
-RADAR_USER='$1'
-RADAR_PASSWORD_HASH='$2'
-# Adresse servie par Caddy. Doit contenir un hôte (IP ou domaine) : sans lui,
-# aucun certificat n'est émis et le HTTPS ne répond pas.
-RADAR_SITE='$3'
-# Vide = Let's Encrypt (certificat authentique, port 80 requis).
-# "tls internal" = certificat auto-signé, avec avertissement de navigateur.
-RADAR_TLS_DIRECTIVE='${TLS_DIRECTIVE}'
+# Les apostrophes simples sont OBLIGATOIRES : Docker Compose interpole les
+# valeurs d'un env_file, et une valeur contenant \$ serait tronquée sans elles.
+#
+# Pour la vue Positions, ajouter l'URL RPC COMPLÈTE (pas seulement la clé) :
+#   RPC_URL='https://mainnet.helius-rpc.com/?api-key=xxxxxxxx'
 EOF
-}
+  chmod 600 "$ENVF"
+fi
 
-# Lit une clé dans un fichier d'environnement en retirant un éventuel quotage.
-read_env_key() {
-  grep "^$2=" "$1" 2>/dev/null | head -1 | cut -d= -f2- | sed "s/^['\"]//; s/['\"]$//"
-}
-
-if [ -f "$ENVF" ] && grep -q '^RADAR_PASSWORD_HASH=' "$ENVF"; then
-  ok "$ENVF existant : mot de passe conservé"
-  # Une adresse passée en --site l'emporte sur celle déjà enregistrée : sans
-  # ça, changer de domaine était silencieusement sans effet.
-  EXISTING_SITE="$([ -n "$SITE_FROM_FLAG" ] && printf '%s' "$SITE" || read_env_key "$ENVF" RADAR_SITE)"
-  EXISTING_HOST="${EXISTING_SITE#https://}"; EXISTING_HOST="${EXISTING_HOST#http://}"; EXISTING_HOST="${EXISTING_HOST%%/*}"
+# Une adresse passée en --site l'emporte sur celle enregistrée : sans ça,
+# changer de domaine était silencieusement sans effet.
+EXISTING_SITE="$(read_env_key "$ENVF" RADAR_SITE)"
+if [ -z "$SITE_FROM_FLAG" ] && [ -n "$EXISTING_SITE" ]; then
+  EXISTING_HOST="${EXISTING_SITE#https://}"; EXISTING_HOST="${EXISTING_HOST#http://}"
+  EXISTING_HOST="${EXISTING_HOST%%/*}"
   if printf '%s' "$EXISTING_HOST" | grep -Eq '^[0-9]+(\.[0-9]+){3}$'; then
-    # Installation antérieure pointant sur une IP nue : le TLS ne peut pas
-    # fonctionner ainsi, on réécrit avec le nom sslip.io correspondant.
-    warn "l'adresse configurée est une IP nue, que le TLS ne permet pas de servir"
+    warn "l'adresse enregistrée est une IP nue, que le TLS ne permet pas de servir"
     SITE="https://$(sslip_name "$EXISTING_HOST")"
-    write_env "$(read_env_key "$ENVF" RADAR_USER)" "$(read_env_key "$ENVF" RADAR_PASSWORD_HASH)" "$SITE"
-    ok "adresse remplacée : $SITE"
-  elif [ -n "$EXISTING_SITE" ]; then
-    if [ "$EXISTING_SITE" != "$(read_env_key "$ENVF" RADAR_SITE)" ]; then
-      write_env "$(read_env_key "$ENVF" RADAR_USER)" "$(read_env_key "$ENVF" RADAR_PASSWORD_HASH)" "$EXISTING_SITE"
-      ok "adresse changée : $EXISTING_SITE"
-    else
-      ok "adresse du site : $EXISTING_SITE"
-    fi
-    SITE="$EXISTING_SITE"
   else
-    write_env "$(read_env_key "$ENVF" RADAR_USER)" "$(read_env_key "$ENVF" RADAR_PASSWORD_HASH)" "$SITE"
-    ok "RADAR_SITE ajouté : $SITE"
+    SITE="$EXISTING_SITE"
   fi
-  HTTP_USER="$(read_env_key "$ENVF" RADAR_USER)"
+fi
+set_env_key RADAR_SITE "$SITE"
+ok "adresse du site : $SITE"
 
-elif [ -f .env ] && grep -q '^RADAR_PASSWORD_HASH=' .env; then
-  # Migration depuis les installations qui utilisaient .env. Le hash y est
-  # correct dans le fichier — c'est sa lecture par Compose qui le corrompait —
-  # donc le mot de passe déjà noté par l'utilisateur reste valable.
-  say "Migration de .env vers $ENVF (quotage du hash)"
-  OLD_USER="$(read_env_key .env RADAR_USER)"
-  OLD_HASH="$(read_env_key .env RADAR_PASSWORD_HASH)"
-  OLD_SITE="$(read_env_key .env RADAR_SITE)"
-  [ -n "$OLD_HASH" ] || die "hash illisible dans .env"
-  [ -n "$OLD_SITE" ] && SITE="$OLD_SITE"
-  [ -n "$OLD_USER" ] && HTTP_USER="$OLD_USER"
-  write_env "$HTTP_USER" "$OLD_HASH" "$SITE"
-  # Écarter l'ancien fichier : Compose charge tout .env du répertoire projet
-  # comme source d'interpolation, ce qui laissait des avertissements trompeurs
-  # sur un déploiement pourtant sain.
-  mv .env .env.migrated
-  ok "$ENVF créé (mot de passe conservé), ancien .env renommé en .env.migrated"
+TLS_DIRECTIVE=""
+[ "$SELF_SIGNED" -eq 1 ] && TLS_DIRECTIVE="tls internal"
+set_env_key RADAR_TLS_DIRECTIVE "$TLS_DIRECTIVE"
 
+if [ -n "$(read_env_key "$ENVF" RPC_URL)" ]; then
+  ok "RPC_URL présent : la vue Positions sera active"
 else
-  say "Génération du mot de passe d'accès"
-  GENERATED_PASSWORD="$(head -c 18 /dev/urandom | base64 | tr -d '/+=' | head -c 20)"
-  # Le hash est produit par la même image que celle qui l'utilisera.
-  HASH="$($DOCKER run --rm caddy:2-alpine caddy hash-password --plaintext "$GENERATED_PASSWORD")"
-  [ -n "$HASH" ] || die "la génération du hash a échoué"
-  write_env "$HTTP_USER" "$HASH" "$SITE"
-  ok "identifiants écrits dans $ENVF (permissions 600)"
+  warn "RPC_URL absent de $ENVF — la vue Positions restera inactive."
+  warn "Ajouter l'URL COMPLÈTE entre apostrophes, puis relancer ce script :"
+  warn "  RPC_URL='https://mainnet.helius-rpc.com/?api-key=xxxxxxxx'"
 fi
 
 # Hôte réellement servi par Caddy : c'est lui qu'il faut interroger, pas
@@ -286,7 +262,7 @@ say "Vérification du frontal HTTPS"
 # pas — aucun certificat, poignée de main échouée, et un faux diagnostic de
 # frontal mort.
 front() { curl -sk -o /dev/null -w '%{http_code}' --max-time 5 \
-            --resolve "${SITE_HOST}:443:127.0.0.1" "$@" "https://${SITE_HOST}/" 2>/dev/null || true; }
+            --resolve "${SITE_HOST}:443:127.0.0.1" "https://${SITE_HOST}/" 2>/dev/null || true; }
 
 # L'émission Let's Encrypt prend quelques dizaines de secondes au premier
 # passage : laisser de la marge avant de conclure à un échec.
@@ -317,30 +293,10 @@ MSG
 fi
 
 case "$FRONT_CODE" in
-  401) ok "TLS établi, authentification active (401 sans identifiants)" ;;
-  200) warn "le frontal répond 200 sans identifiants : basic_auth ne protège rien." ;;
-  *)   warn "le frontal répond ${FRONT_CODE} (401 attendu) — vérifier le Caddyfile" ;;
+  200) ok "TLS établi, le site répond (200)" ;;
+  401) warn "le frontal réclame une authentification alors que le site est public" ;;
+  *)   warn "le frontal répond ${FRONT_CODE} (200 attendu) — vérifier le Caddyfile" ;;
 esac
-
-# Contrôle décisif, possible seulement quand on vient de générer le mot de
-# passe : il vérifie que le hash est arrivé INTACT jusqu'à Caddy. C'est ce qui
-# manquait quand l'interpolation de Compose tronquait silencieusement le hash.
-if [ -n "$GENERATED_PASSWORD" ]; then
-  say "Vérification de l'authentification"
-  AUTH_CODE="$(front -u "${HTTP_USER}:${GENERATED_PASSWORD}")"
-  case "$AUTH_CODE" in
-    200)
-      ok "identifiants acceptés — le hash est intact" ;;
-    401)
-      printf '\n%sLe mot de passe généré est refusé.%s\n' "$RED" "$RST" >&2
-      printf 'Le hash a été altéré entre %s et Caddy. Vérifier que les valeurs de\n' "$ENVF" >&2
-      printf '%s sont bien entre apostrophes simples : Compose interpole sinon les $.\n' "$ENVF" >&2
-      $DOCKER compose logs --tail=20 caddy >&2 || true
-      exit 1 ;;
-    *)
-      warn "réponse ${AUTH_CODE} avec identifiants (200 attendu)" ;;
-  esac
-fi
 
 # ----------------------------------------------------------------- pare-feu
 
@@ -361,32 +317,12 @@ cat <<EOF
 ${GRN}${BLD}Déploiement terminé.${RST}
 
   Adresse     ${BLD}${SITE}/${RST}
-  Identifiant ${HTTP_USER}
-EOF
-
-if [ -n "$GENERATED_PASSWORD" ]; then
-  cat <<EOF
-  Mot de passe ${BLD}${GENERATED_PASSWORD}${RST}
-
-  ${YLW}Noter ce mot de passe maintenant : il n'est affiché qu'une fois${RST}
-  (seul son hash est conservé, dans .env).
-EOF
-else
-  echo "  Mot de passe  inchangé (défini lors d'une exécution précédente)"
-fi
-
-cat <<EOF
-
-  Le navigateur affichera un ${BLD}avertissement de certificat${RST}. C'est attendu :
-  sans nom de domaine, aucune autorité publique ne peut signer un certificat,
-  donc Caddy en émet un lui-même. La connexion est chiffrée — ce qui protège
-  le mot de passe — mais l'identité du serveur n'est pas attestée. Accepter
-  une fois. Pour supprimer l'avertissement, il faut un nom de domaine
-  (voir DEPLOY.md).
+  Accès       public, sans mot de passe
 
   Les colonnes dérivées (Fees/min, Vol/min, Accél.) restent vides ~15 min :
-  elles se calculent entre deux échantillons successifs.
+  elles se calculent entre deux relevés successifs du compteur de fees.
 
   Journaux      docker compose -f ${INSTALL_DIR}/docker-compose.yml logs -f
   Mise à jour   ${INSTALL_DIR}/scripts/deploy.sh
+  Domaine       ${INSTALL_DIR}/scripts/deploy.sh --site https://mondomaine.com
 EOF
