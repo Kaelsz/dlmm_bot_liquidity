@@ -15,10 +15,7 @@ import type { NextConfig } from "next";
 const NATIVE_DEPS = ["better-sqlite3", "bindings", "file-uri-to-path"];
 
 const nextConfig: NextConfig = {
-  // @meteora-ag/dlmm publie un build ESM qui fait des imports de
-  // répertoire, refusés par le résolveur de Node. Le laisser hors du bundle
-  // force la résolution CJS, qui fonctionne.
-  serverExternalPackages: [...NATIVE_DEPS, "pino", "@meteora-ag/dlmm", "@solana/web3.js"],
+  serverExternalPackages: [...NATIVE_DEPS, "pino"],
   // Self-hosted on a VPS: emit a minimal standalone server for the Docker image.
   output: "standalone",
   reactStrictMode: true,

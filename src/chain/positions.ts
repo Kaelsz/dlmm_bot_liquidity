@@ -14,7 +14,6 @@
  */
 
 import { Connection, PublicKey } from "@solana/web3.js";
-import DLMM from "@meteora-ag/dlmm";
 import { config } from "@/config";
 import { apiFor } from "@/data/client";
 import { isTrustedMint } from "@/data/rugcheck";
@@ -103,6 +102,10 @@ export async function readPositions(owner: string): Promise<ChainPosition[]> {
     return [];
   }
 
+  // Import différé : le SDK est lourd et son packaging fragile. Le charger au
+  // démarrage faisait tomber l'application entière — collecteur compris — sur
+  // une fonctionnalité qui n'est utilisée que sur une page.
+  const { default: DLMM } = await import("@meteora-ag/dlmm");
   const byPair = await DLMM.getAllLbPairPositionsByUser(conn, ownerKey);
   const out: ChainPosition[] = [];
 
