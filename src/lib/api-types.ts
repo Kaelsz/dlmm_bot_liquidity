@@ -29,6 +29,8 @@ export interface PoolRow {
   createdAt: number;
   isBlacklisted: boolean;
   launchpad: string | null;
+  /** Market cap du token risqué. 0 = inconnu. */
+  marketCap: number;
   /** Attributes of the risky side — never of whichever token happens to be x. */
   holders: number;
   verified: boolean;
@@ -128,6 +130,7 @@ export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {
     createdAt: r.createdAt,
     isBlacklisted: r.isBlacklisted === 1,
     launchpad: r.launchpad,
+    marketCap: r.marketCap,
     holders: riskyIsX ? r.tokenXHolders : r.tokenYHolders,
     verified: (riskyIsX ? r.tokenXVerified : r.tokenYVerified) === 1,
     freezeDisabled: (riskyIsX ? r.tokenXFreezeDisabled : r.tokenYFreezeDisabled) === 1,

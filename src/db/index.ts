@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { config } from "@/config";
 import { MIGRATIONS, SCHEMA } from "@/db/schema.sql";
 import type { DerivedMetrics } from "@/data/metrics";
-import type { RugcheckReport } from "@/data/rugcheck";
+import { isTrustedMint, type RugcheckReport } from "@/data/rugcheck";
 import type { PoolView } from "@/types/meteora";
 
 /** One point of the derived signal, recomputed from two consecutive samples. */
@@ -39,6 +39,8 @@ export interface LeaderboardRow {
   createdAt: number;
   isBlacklisted: number;
   launchpad: string | null;
+  /** Market cap du token risqué. Celui du quote n'a aucune valeur informative. */
+  marketCap: number;
   tokenXHolders: number;
   tokenXVerified: number;
   tokenXFreezeDisabled: number;
@@ -88,12 +90,14 @@ export interface LeaderboardFilters {
   minTvl?: number;
   maxTvl?: number;
   minHeat?: number;
+  minMcap?: number;
+  maxMcap?: number;
   maxAgeMinutes?: number;
   protocol?: "dlmm" | "damm_v2";
   excludeBlacklisted?: boolean;
   /** Only pools whose metrics were refreshed within this window. */
   freshWithinMs?: number;
-  sort?: "heat" | "rate" | "volumeRate" | "tvl" | "volume" | "age" | "accel";
+  sort?: "heat" | "rate" | "volumeRate" | "tvl" | "volume" | "mcap" | "age" | "accel";
   limit?: number;
 }
 
@@ -105,6 +109,7 @@ const LEADERBOARD_SELECT = `
     p.token_x_mint AS tokenXMint, p.token_y_mint AS tokenYMint, p.bin_step AS binStep,
     p.base_fee_pct AS baseFeePct, p.created_at AS createdAt,
     p.is_blacklisted AS isBlacklisted, p.launchpad,
+    p.risky_market_cap AS marketCap,
     p.token_x_holders AS tokenXHolders,
     p.token_x_verified AS tokenXVerified,
     p.token_x_freeze_disabled AS tokenXFreezeDisabled,
@@ -167,7 +172,8 @@ export class RadarDb {
       token_y_mint, token_y_symbol, token_y_decimals, token_y_holders,
       token_y_verified, token_y_freeze_disabled, token_y_market_cap,
       bin_step, base_fee_pct, collect_fee_mode, created_at,
-      first_seen_at, last_seen_at, is_blacklisted, launchpad, tags
+      first_seen_at, last_seen_at, is_blacklisted, launchpad, tags,
+      risky_market_cap
     ) VALUES (
       @address, @protocol, @name,
       @tokenXMint, @tokenXSymbol, @tokenXDecimals, @tokenXHolders,
@@ -175,7 +181,8 @@ export class RadarDb {
       @tokenYMint, @tokenYSymbol, @tokenYDecimals, @tokenYHolders,
       @tokenYVerified, @tokenYFreezeDisabled, @tokenYMarketCap,
       @binStep, @baseFeePct, @collectFeeMode, @createdAt,
-      @now, @now, @isBlacklisted, @launchpad, @tags
+      @now, @now, @isBlacklisted, @launchpad, @tags,
+      @riskyMarketCap
     )
     ON CONFLICT(address) DO UPDATE SET
       last_seen_at = @now,
@@ -185,6 +192,7 @@ export class RadarDb {
       token_x_market_cap = @tokenXMarketCap,
       token_y_holders = @tokenYHolders,
       token_y_market_cap = @tokenYMarketCap,
+      risky_market_cap = @riskyMarketCap,
       is_blacklisted = @isBlacklisted
   `;
 
@@ -215,6 +223,12 @@ export class RadarDb {
       isBlacklisted: p.isBlacklisted ? 1 : 0,
       launchpad: p.launchpad,
       tags: JSON.stringify(p.tags),
+      // Le côté risqué est celui qui n'est pas SOL/USDC/USDT. Même logique que
+      // riskyMintOf, appliquée ici pour que le filtre reste un simple BETWEEN.
+      riskyMarketCap:
+        isTrustedMint(p.tokenX.address) && !isTrustedMint(p.tokenY.address)
+          ? p.tokenY.market_cap
+          : p.tokenX.market_cap,
     });
   }
 
@@ -342,6 +356,17 @@ export class RadarDb {
       where.push("m.tvl <= @maxTvl");
       params.maxTvl = f.maxTvl;
     }
+    if (f.minMcap !== undefined) {
+      where.push("p.risky_market_cap >= @minMcap");
+      params.minMcap = f.minMcap;
+    }
+    if (f.maxMcap !== undefined) {
+      // Un market cap à 0 signifie « inconnu », pas « minuscule » : l'exclure
+      // d'un plafond éviterait de faire passer pour petites des pools qu'on
+      // n'a simplement pas su mesurer.
+      where.push("(p.risky_market_cap > 0 AND p.risky_market_cap <= @maxMcap)");
+      params.maxMcap = f.maxMcap;
+    }
     if (f.minHeat !== undefined) {
       where.push("m.heat_pct_hr >= @minHeat");
       params.minHeat = f.minHeat;
@@ -366,6 +391,7 @@ export class RadarDb {
         rate: "m.fee_rate_usd_min DESC",
         tvl: "m.tvl DESC",
         volume: "m.volume_30m DESC",
+        mcap: "p.risky_market_cap DESC",
         volumeRate: "m.volume_rate_usd_min DESC",
         age: "p.created_at DESC",
         accel: "m.fee_accel DESC",

@@ -98,7 +98,8 @@ export function fmtAxisTime(ts: number, spanMs: number): string {
  * les deux ne doivent pas produire le même comportement, sinon une faute de
  * frappe désactiverait silencieusement le filtre.
  *
- * Accepte ce qu'on tape réellement : `5k`, `$50 000`, `1,5M`, `2.5K`.
+ * Accepte ce qu'on tape réellement : `5k`, `$50 000`, `1,5M`, `2.5K`, `1B`.
+ * Le suffixe milliard sert au filtre Market Cap, où SOL dépasse $40 Md.
  */
 export function parseAmount(input: string): number | null | undefined {
   const raw = input.trim();
@@ -111,12 +112,14 @@ export function parseAmount(input: string): number | null | undefined {
     .replace(/,(?=\d{3}\b)/g, "")
     .replace(",", ".");
 
-  const m = /^(\d+(?:\.\d+)?)([kKmM]?)$/.exec(cleaned);
+  const m = /^(\d+(?:\.\d+)?)([kKmMbB]?)$/.exec(cleaned);
   if (!m) return undefined;
 
   const n = Number(m[1]);
   if (!Number.isFinite(n)) return undefined;
-  const mult = m[2]?.toLowerCase() === "k" ? 1_000 : m[2]?.toLowerCase() === "m" ? 1_000_000 : 1;
+  const suffix = m[2]?.toLowerCase();
+  const mult =
+    suffix === "k" ? 1_000 : suffix === "m" ? 1_000_000 : suffix === "b" ? 1_000_000_000 : 1;
   return n * mult;
 }
 
@@ -124,6 +127,7 @@ export function parseAmount(input: string): number | null | undefined {
 export function fmtAmountInput(v: number | null): string {
   if (v === null || !Number.isFinite(v)) return "";
   if (v === 0) return "0";
+  if (v >= 1_000_000_000 && v % 100_000_000 === 0) return `${v / 1_000_000_000}B`;
   if (v >= 1_000_000 && v % 100_000 === 0) return `${v / 1_000_000}M`;
   if (v >= 1_000 && v % 100 === 0) return `${v / 1_000}k`;
   return String(v);

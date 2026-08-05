@@ -16,7 +16,7 @@ export async function GET(req: Request): Promise<NextResponse<PoolsResponse>> {
   const q = url.searchParams;
 
   const sortParam = q.get("sort");
-  const sort = (["heat", "rate", "volumeRate", "tvl", "volume", "age", "accel"] as const).find(
+  const sort = (["heat", "rate", "volumeRate", "tvl", "volume", "mcap", "age", "accel"] as const).find(
     (s) => s === sortParam,
   );
 
@@ -27,6 +27,8 @@ export async function GET(req: Request): Promise<NextResponse<PoolsResponse>> {
     minTvl: numParam(q.get("minTvl")),
     maxTvl: numParam(q.get("maxTvl")),
     minHeat: numParam(q.get("minHeat")),
+    minMcap: numParam(q.get("minMcap")),
+    maxMcap: numParam(q.get("maxMcap")),
     maxAgeMinutes: numParam(q.get("maxAgeMinutes")),
     protocol,
     excludeBlacklisted: q.get("excludeBlacklisted") !== "false",

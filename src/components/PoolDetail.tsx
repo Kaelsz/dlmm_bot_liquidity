@@ -129,19 +129,19 @@ export function PoolDetail({ address, onClose }: { address: string; onClose: () 
           )}
           <button
             onClick={onClose}
-            className="ml-auto rounded-[3px] px-2 py-0.5 text-[11px] text-fg-faint hover:bg-raised hover:text-fg"
+            className="ml-auto min-h-[36px] min-w-[36px] rounded-[3px] px-2 text-[14px] text-fg-faint hover:bg-raised hover:text-fg md:min-h-0 md:min-w-0 md:py-0.5 md:text-[11px]"
             title="Fermer (Échap)"
           >
             ✕
           </button>
         </header>
 
-        <div className="flex items-center gap-1 border-b border-line px-3 py-1.5">
+        <div className="flex items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5">
           {WINDOWS.map(([k, label]) => (
             <button
               key={k}
               onClick={() => setWindowKey(k)}
-              className={`rounded-[3px] px-2 py-0.5 text-[11px] transition-colors ${
+              className={`shrink-0 rounded-[3px] px-2.5 py-1.5 text-[12px] transition-colors md:px-2 md:py-0.5 md:text-[11px] ${
                 windowKey === k
                   ? "bg-raised text-accent"
                   : "text-fg-faint hover:bg-raised hover:text-fg-dim"

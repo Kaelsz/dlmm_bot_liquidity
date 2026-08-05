@@ -51,7 +51,7 @@ export function Nav({
       </nav>
 
       {counts && lastUpdate ? (
-        <div className="ml-auto flex items-center gap-4 text-[11px] text-fg-faint">
+        <div className="ml-auto hidden items-center gap-4 text-[11px] text-fg-faint sm:flex">
           <span title="pools suivies · mesures stockées">
             <span className="tnum text-fg-dim">{fmtInt(counts.metrics)}</span> pools ·{" "}
             <span className="tnum text-fg-dim">{fmtInt(counts.samples)}</span> mesures

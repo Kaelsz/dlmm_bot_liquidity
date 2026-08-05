@@ -30,6 +30,12 @@ describe("parseAmount", () => {
     expect(parseAmount("1,5k")).toBe(1_500);
   });
 
+  it("accepte le suffixe milliard, indispensable au filtre Market Cap", () => {
+    expect(parseAmount("1B")).toBe(1_000_000_000);
+    expect(parseAmount("2.5b")).toBe(2_500_000_000);
+    expect(parseAmount("$43B")).toBe(43_000_000_000);
+  });
+
   it("accepte zéro", () => {
     expect(parseAmount("0")).toBe(0);
   });
@@ -37,7 +43,7 @@ describe("parseAmount", () => {
 
 describe("fmtAmountInput", () => {
   it("produit une forme qu'on peut retaper telle quelle", () => {
-    for (const v of [0, 500, 5_000, 50_000, 1_500_000]) {
+    for (const v of [0, 500, 5_000, 50_000, 1_500_000, 1_000_000_000, 43_000_000_000]) {
       expect(parseAmount(fmtAmountInput(v))).toBe(v);
     }
   });

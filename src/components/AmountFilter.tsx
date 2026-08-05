@@ -73,8 +73,8 @@ export function AmountFilter({
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
 
   return (
-    <label className="flex items-center gap-1.5">
-      <span className="uppercase tracking-wide text-fg-faint">{label}</span>
+    <label className="flex items-center justify-between gap-1.5 md:justify-start">
+      <span className="shrink-0 whitespace-nowrap uppercase tracking-wide text-fg-faint">{label}</span>
       <input
         list={listId}
         value={text}
@@ -86,7 +86,7 @@ export function AmountFilter({
           if (e.key === "Enter") flush();
         }}
         title="Liste déroulante ou saisie libre — 5k, 50 000, 1,5M"
-        className={`tnum w-[72px] rounded-[2px] bg-raised px-1 py-0.5 text-fg outline-none focus:ring-1 ${
+        className={`tnum w-full min-h-[36px] rounded-[2px] bg-raised px-2 text-fg outline-none focus:ring-1 md:min-h-0 md:w-[72px] md:px-1 md:py-0.5 ${
           invalid ? "ring-1 ring-down" : "focus:ring-accent"
         }`}
       />

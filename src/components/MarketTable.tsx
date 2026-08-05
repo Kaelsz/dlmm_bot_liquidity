@@ -211,7 +211,11 @@ export function MarketTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-[12px]">
+      {/* hidden md:table : le tableau disparaît sous 768 px au profit de
+          <MarketCards>. Bascule en CSS et non en JavaScript, pour que le rendu
+          desktop reste exactement celui d'avant — aucun état React, aucun
+          risque de décalage d'hydratation. */}
+      <table className="hidden w-full border-collapse text-[12px] md:table">
         <thead className="sticky top-0 z-10 bg-surface">
           <tr className="border-b border-line-strong">
             {COLS.map((c) => {
@@ -238,7 +242,7 @@ export function MarketTable({
       </table>
 
       {rows.length === 0 ? (
-        <div className="px-4 py-10 text-center text-fg-faint">
+        <div className="hidden px-4 py-10 text-center text-fg-faint md:block">
           Aucune pool ne correspond aux filtres.
         </div>
       ) : null}

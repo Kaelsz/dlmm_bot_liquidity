@@ -131,10 +131,10 @@ export function PositionsView() {
     <div className="flex h-full flex-col">
       <Nav now={now} />
 
-      <div className="flex items-center gap-3 border-b border-line bg-app px-3 py-1.5 text-[11px]">
+      <div className="flex flex-col gap-2 border-b border-line bg-app px-3 py-2 text-[12px] md:flex-row md:items-center md:gap-3 md:py-1.5 md:text-[11px]">
         <button
           onClick={() => void connect()}
-          className="rounded-[3px] bg-raised px-2 py-0.5 text-accent hover:bg-hover"
+          className="min-h-[44px] rounded-[3px] bg-raised px-4 text-accent active:bg-hover md:min-h-0 md:px-2 md:py-0.5"
         >
           Connecter Phantom
         </button>
@@ -146,7 +146,7 @@ export function PositionsView() {
           }}
           onBlur={() => input.trim() && input.trim() !== owner && use(input.trim())}
           placeholder="ou colle une adresse de wallet"
-          className="tnum w-[380px] rounded-[2px] bg-raised px-1.5 py-0.5 text-fg outline-none focus:ring-1 focus:ring-accent"
+          className="tnum min-h-[40px] w-full rounded-[2px] bg-raised px-2 text-fg outline-none focus:ring-1 focus:ring-accent md:min-h-0 md:w-[380px] md:px-1.5 md:py-0.5"
         />
         {loading ? <span className="text-fg-faint">lecture de la chaîne…</span> : null}
         {error ? <span className="text-warn">⚠ {error}</span> : null}
@@ -163,7 +163,7 @@ export function PositionsView() {
       ) : null}
 
       {owner && positions.length > 0 ? (
-        <div className="flex items-center gap-6 border-b border-line bg-surface px-3 py-1.5 text-[11px]">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-surface px-3 py-1.5 text-[11px] md:gap-6">
           <Total label="Exposition" value={fmtUsd(totalValue)} />
           <Total label="Fees perçues" value={fmtUsd(totalFees)} good />
           <Total
@@ -201,7 +201,7 @@ export function PositionsView() {
 
       {selected ? <PoolDetail address={selected} onClose={() => setSelected(null)} /> : null}
 
-      <footer className="border-t border-line bg-surface px-3 py-1 text-[10px] text-fg-faint">
+      <footer className="hidden border-t border-line bg-surface px-3 py-1 text-[10px] text-fg-faint md:block">
         Le prix de revient n&apos;existe nulle part sur la chaîne : un compte de position porte sa
         valeur courante et ses fees, jamais le montant déposé. Le ROI part donc de la première
         observation par le dashboard — d&apos;où « depuis le … » sur chaque ligne. Les dépôts et
@@ -247,7 +247,7 @@ function Table({
       <h3 className="border-b border-line bg-app px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-fg-faint">
         {title}
       </h3>
-      <table className="w-full border-collapse text-[12px]">
+      <table className="hidden w-full border-collapse text-[12px] md:table">
         <thead className="sticky top-0 bg-app text-[10px] uppercase tracking-wide text-fg-faint">
           <tr className="border-b border-line-strong">
             <th className="w-[200px] px-2 py-1.5 text-left">Pool</th>
@@ -315,6 +315,56 @@ function Table({
           ))}
         </tbody>
       </table>
+
+      {/* Même raisonnement que la vue Marché : huit colonnes ne tiennent pas
+          sur un téléphone, et la bascule est faite en CSS pour que le rendu
+          desktop reste rigoureusement inchangé. */}
+      <ul className="md:hidden">
+        {rows.map((p) => (
+          <li
+            key={p.positionAddress}
+            onClick={() => onSelect(p.poolAddress)}
+            className="flex min-h-[64px] cursor-pointer flex-col justify-center gap-1 border-b border-line px-3 py-2 text-[13px] active:bg-hover"
+          >
+            <div className="flex items-center gap-2">
+              <span className="truncate font-medium text-fg">{p.poolName}</span>
+              {!p.valued ? <span className="text-[9px] text-warn">non valorisée</span> : null}
+              <span
+                className={`ml-auto shrink-0 tnum ${(p.roi.roiPct ?? 0) >= 0 ? "text-up" : "text-down"}`}
+              >
+                {p.roi.roiPct !== null && p.valued ? fmtPct(p.roi.roiPct, 2) : "—"}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 text-[12px]">
+              <span className="text-fg-faint">
+                valeur <span className="tnum text-fg-dim">{p.valued ? fmtUsd(p.valueUsd) : "—"}</span>
+              </span>
+              <span className="text-fg-faint">
+                fees{" "}
+                <span className="tnum text-up">
+                  {p.valued ? fmtUsd(p.claimedFeeUsd + p.unclaimedFeeUsd) : "—"}
+                </span>
+              </span>
+              <span className="text-fg-faint">
+                P&amp;L{" "}
+                <span className={`tnum ${p.roi.pnlUsd >= 0 ? "text-up" : "text-down"}`}>
+                  {p.valued ? fmtUsd(p.roi.pnlUsd) : "—"}
+                </span>
+              </span>
+            </div>
+            <div className="flex items-center gap-3 text-[11px] text-fg-faint">
+              {p.closed ? (
+                <span>fermée</span>
+              ) : p.inRange ? (
+                <span className="text-up">dans la plage</span>
+              ) : (
+                <span className="text-warn">hors plage</span>
+              )}
+              <span className="ml-auto tnum">depuis {fmtAge(p.roi.since, now ?? p.lastSeenAt)}</span>
+            </div>
+          </li>
+        ))}
+      </ul>
     </>
   );
 }

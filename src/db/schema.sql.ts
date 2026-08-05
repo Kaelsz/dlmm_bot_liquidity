@@ -27,6 +27,7 @@ export const MIGRATIONS: string[] = [
   "ALTER TABLE pool_metrics ADD COLUMN rate_span_ms INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE pool_metrics ADD COLUMN rate_updates INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE tracked_wallets ADD COLUMN last_viewed_at INTEGER",
+  "ALTER TABLE pools ADD COLUMN risky_market_cap REAL NOT NULL DEFAULT 0",
 ];
 
 export const SCHEMA = `
@@ -86,6 +87,11 @@ CREATE TABLE IF NOT EXISTS pools (
   token_y_verified          INTEGER NOT NULL DEFAULT 0,
   token_y_freeze_disabled   INTEGER NOT NULL DEFAULT 0,
   token_y_market_cap        REAL NOT NULL DEFAULT 0,
+  -- Market cap du côté RISQUÉ uniquement. Dénormalisé parce que filtrer
+  -- dessus exigerait sinon de porter la liste des mints de confiance dans la
+  -- requête SQL ; ici la définition du côté risqué reste en TypeScript, à un
+  -- seul endroit. Celui du quote n'a aucun sens : USDC vaut $7,7 Md partout.
+  risky_market_cap          REAL NOT NULL DEFAULT 0,
   bin_step                  INTEGER,
   base_fee_pct              REAL NOT NULL DEFAULT 0,
   collect_fee_mode          INTEGER NOT NULL DEFAULT 0,
