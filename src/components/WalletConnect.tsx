@@ -28,6 +28,10 @@ export interface ConnectedWallet {
   address: string;
   /** Le portefeuille sait-il signer ? Sans ça, le Zap Out est impossible. */
   canSign: boolean;
+  /** Conservés pour la signature : le Wallet Standard exige de repasser le
+   *  portefeuille ET le compte exact à `signAndSendTransaction`. */
+  wallet: Wallet;
+  account: unknown;
 }
 
 interface StandardConnectFeature {
@@ -76,9 +80,16 @@ export async function connectWallet(w: Wallet): Promise<ConnectedWallet> {
   const feature = w.features[CONNECT] as StandardConnectFeature | undefined;
   if (!feature) throw new Error(`${w.name} ne sait pas se connecter`);
   const { accounts } = await feature.connect();
-  const address = accounts[0]?.address;
-  if (!address) throw new Error(`${w.name} n'a renvoyé aucun compte`);
-  return { name: w.name, icon: w.icon, address, canSign: SOLANA_SIGN in w.features };
+  const account = accounts[0];
+  if (!account?.address) throw new Error(`${w.name} n'a renvoyé aucun compte`);
+  return {
+    name: w.name,
+    icon: w.icon,
+    address: account.address,
+    canSign: SOLANA_SIGN in w.features,
+    wallet: w,
+    account,
+  };
 }
 
 /**

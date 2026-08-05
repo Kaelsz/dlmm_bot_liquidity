@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Nav } from "@/components/Nav";
 import { PoolDetail } from "@/components/PoolDetailLazy";
 import { WalletButtons, type ConnectedWallet } from "@/components/WalletConnect";
+import { ZapOut } from "@/components/ZapOut";
 import { fmtAge, fmtPct, fmtUsd } from "@/lib/format";
 
 interface Roi {
@@ -160,10 +161,24 @@ export function PositionsView() {
 
       <div className="min-h-0 flex-1 overflow-auto">
         {open.length > 0 ? (
-          <Table title="Positions ouvertes" rows={open} now={now} onSelect={setSelected} />
+          <Table
+            title="Positions ouvertes"
+            rows={open}
+            now={now}
+            onSelect={setSelected}
+            wallet={wallet}
+            onDone={() => void load(owner)}
+          />
         ) : null}
         {closed.length > 0 ? (
-          <Table title="Positions fermées" rows={closed} now={now} onSelect={setSelected} />
+          <Table
+            title="Positions fermées"
+            rows={closed}
+            now={now}
+            onSelect={setSelected}
+            wallet={null}
+            onDone={() => void load(owner)}
+          />
         ) : null}
         {owner && !loading && positions.length === 0 && configured ? (
           <div className="px-3 py-8 text-center text-fg-faint">
@@ -209,11 +224,15 @@ function Table({
   rows,
   now,
   onSelect,
+  wallet,
+  onDone,
 }: {
   title: string;
   rows: Position[];
   now: number | null;
   onSelect: (a: string) => void;
+  wallet: ConnectedWallet | null;
+  onDone: () => void;
 }) {
   return (
     <>
@@ -231,6 +250,7 @@ function Table({
             <th className="w-[90px] px-2 py-1.5 text-right">Engagé</th>
             <th className="w-[80px] px-2 py-1.5 text-left">Plage</th>
             <th className="w-[90px] px-2 py-1.5 text-right">Depuis</th>
+            <th className="w-[130px] px-2 py-1.5 text-left">Action</th>
           </tr>
         </thead>
         <tbody>
@@ -283,6 +303,17 @@ function Table({
                 title={new Date(p.roi.since).toLocaleString("fr-FR")}
               >
                 {fmtAge(p.roi.since, now ?? p.lastSeenAt)}
+              </td>
+              <td className="px-2">
+                {!p.closed && wallet ? (
+                  <ZapOut
+                    owner={wallet.address}
+                    positionAddress={p.positionAddress}
+                    wallet={wallet.wallet}
+                    account={wallet.account}
+                    onDone={onDone}
+                  />
+                ) : null}
               </td>
             </tr>
           ))}
