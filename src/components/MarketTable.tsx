@@ -18,6 +18,7 @@ const COLS = [
   { key: "spark", label: "Tendance", w: "w-[72px]", align: "left" },
   { key: "accel", label: "Accél.", w: "w-[76px]", align: "right", sortable: true },
   { key: "tvl", label: "TVL", w: "w-[74px]", align: "right", sortable: true },
+  { key: "mcap", label: "MCap", w: "w-[78px]", align: "right", sortable: true },
   { key: "volume", label: "Vol 30m", w: "w-[74px]", align: "right", sortable: true },
   { key: "fees", label: "Fees 30m", w: "w-[74px]", align: "right" },
   { key: "fee", label: "Frais", w: "w-[74px]", align: "right" },
@@ -27,7 +28,15 @@ const COLS = [
   { key: "links", label: "Liens", w: "w-[86px]", align: "left" },
 ] as const;
 
-export type SortKey = "heat" | "rate" | "volumeRate" | "tvl" | "volume" | "age" | "accel";
+export type SortKey =
+  | "heat"
+  | "rate"
+  | "volumeRate"
+  | "tvl"
+  | "volume"
+  | "mcap"
+  | "age"
+  | "accel";
 
 const SORT_FOR_COL: Partial<Record<string, SortKey>> = {
   heat: "heat",
@@ -35,6 +44,7 @@ const SORT_FOR_COL: Partial<Record<string, SortKey>> = {
   volumeRate: "volumeRate",
   accel: "accel",
   tvl: "tvl",
+  mcap: "mcap",
   volume: "volume",
   age: "age",
 };
@@ -153,6 +163,14 @@ export function MarketTable({
 
             <td className="px-2">
               <Num value={r.tvl} format={fmtUsd} className="text-fg-dim" />
+            </td>
+
+            <td className="px-2">
+              {/* 0 = market cap inconnu, pas minuscule : afficher un tiret
+                  plutôt que « $0 », qui se lirait comme une mesure. */}
+              <span className="tnum block text-right text-fg-dim">
+                {r.marketCap > 0 ? fmtUsd(r.marketCap) : "—"}
+              </span>
             </td>
 
             <td className="px-2">

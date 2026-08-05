@@ -204,6 +204,7 @@ export function PoolDetail({ address, onClose }: { address: string; onClose: () 
                     ],
                     ["Volume", fmtRate(p.volumeRateUsdMin) + "/min", p.volumeRateUsdMin > 0],
                     ["TVL", fmtUsd(p.tvl)],
+                    ["Market cap", p.marketCap > 0 ? fmtUsd(p.marketCap) : "—"],
                     ["Prix", fmtPrice(p.price)],
                     ["Volume 30 m", fmtUsd(p.volume30m)],
                     ["Fees 30 m", fmtUsd(p.fees30m)],
