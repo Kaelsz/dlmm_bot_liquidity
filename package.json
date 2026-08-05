@@ -24,7 +24,10 @@
   },
   "dependencies": {
     "@meteora-ag/dlmm": "^1.9.14",
+    "@meteora-ag/zap-sdk": "^1.3.2",
+    "@solana/wallet-standard-features": "^1.4.0",
     "@solana/web3.js": "^1.98.4",
+    "@wallet-standard/app": "^1.1.1",
     "better-sqlite3": "^11.8.0",
     "next": "^15.1.6",
     "pino": "^9.6.0",

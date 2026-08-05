@@ -3,24 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Nav } from "@/components/Nav";
 import { PoolDetail } from "@/components/PoolDetailLazy";
+import { WalletButtons, type ConnectedWallet } from "@/components/WalletConnect";
 import { fmtAge, fmtPct, fmtUsd } from "@/lib/format";
-
-/**
- * Phantom injecte son fournisseur dans la page. `connect()` rend la clé
- * publique, et c'est tout ce dont on a besoin : lire des positions ne demande
- * AUCUNE signature. Trente lignes suffisent là où `@solana/wallet-adapter-*`
- * ajouterait quatre paquets pour le même résultat.
- *
- * La saisie manuelle reste offerte, et c'est même l'entrée réelle — la
- * connexion n'est qu'un remplissage automatique. Elle couvre aussi le cas où
- * Phantom n'est pas installé.
- */
-interface PhantomProvider {
-  isPhantom?: boolean;
-  connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString: () => string } }>;
-}
-const getPhantom = (): PhantomProvider | undefined =>
-  (globalThis as { phantom?: { solana?: PhantomProvider } }).phantom?.solana;
 
 interface Roi {
   pnlUsd: number;
@@ -54,6 +38,7 @@ export function PositionsView() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const [wallet, setWallet] = useState<ConnectedWallet | null>(null);
   const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
@@ -104,20 +89,6 @@ export function PositionsView() {
     void load(addr);
   };
 
-  const connect = async (): Promise<void> => {
-    const ph = getPhantom();
-    if (!ph) {
-      setError("Phantom n'est pas détecté. Colle ton adresse à la place.");
-      return;
-    }
-    try {
-      const { publicKey } = await ph.connect();
-      use(publicKey.toString());
-    } catch {
-      setError("connexion refusée");
-    }
-  };
-
   const open = positions.filter((p) => !p.closed);
   const closed = positions.filter((p) => p.closed);
   const sum = (ps: Position[], f: (p: Position) => number): number =>
@@ -132,12 +103,14 @@ export function PositionsView() {
       <Nav now={now} />
 
       <div className="flex flex-col gap-2 border-b border-line bg-app px-3 py-2 text-[12px] md:flex-row md:items-center md:gap-3 md:py-1.5 md:text-[11px]">
-        <button
-          onClick={() => void connect()}
-          className="min-h-[44px] rounded-[3px] bg-raised px-4 text-accent active:bg-hover md:min-h-0 md:px-2 md:py-0.5"
-        >
-          Connecter Phantom
-        </button>
+        <WalletButtons
+          onConnected={(w) => {
+            setWallet(w);
+            setError(null);
+            use(w.address);
+          }}
+          onError={setError}
+        />
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
