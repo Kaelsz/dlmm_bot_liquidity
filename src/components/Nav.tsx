@@ -38,7 +38,13 @@ export function Nav({
             <Link
               key={t.href}
               href={t.href}
-              className={`rounded-[3px] px-2 py-0.5 text-[11px] uppercase tracking-wide transition-colors ${
+              // Cible tactile de 40 px sur téléphone : à 18 px de haut, changer
+              // d'onglet au pouce ratait une fois sur deux. Les classes md:
+              // remettent exactement les dimensions d'origine sur desktop.
+              // md:inline restaure le display d'origine d'un <a> : en flex, la
+              // hauteur viendrait du contenu et non de la ligne, ce qui
+              // décalerait l'en-tête desktop de quelques pixels.
+              className={`flex min-h-[40px] items-center rounded-[3px] px-3 text-[12px] uppercase tracking-wide transition-colors md:inline md:min-h-0 md:px-2 md:py-0.5 md:text-[11px] ${
                 active
                   ? "bg-raised text-accent"
                   : "text-fg-faint hover:bg-raised hover:text-fg-dim"

@@ -385,6 +385,22 @@ function Table({
               )}
               <span className="ml-auto tnum">depuis {fmtAge(p.roi.since, now ?? p.lastSeenAt)}</span>
             </div>
+
+            {/* Zap Out aussi sur téléphone. C'est là qu'il sert le plus : on
+                consulte ses positions depuis le navigateur intégré de Phantom,
+                et une sortie qui n'existerait que sur desktop obligerait à
+                rentrer chez soi pour fermer une position qui décroche. */}
+            {!p.closed && wallet ? (
+              <div onClick={(e) => e.stopPropagation()}>
+                <ZapOut
+                  owner={wallet.address}
+                  positionAddress={p.positionAddress}
+                  wallet={wallet.wallet}
+                  account={wallet.account}
+                  onDone={onDone}
+                />
+              </div>
+            ) : null}
           </li>
         ))}
       </ul>

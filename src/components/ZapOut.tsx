@@ -126,6 +126,18 @@ export function ZapOut({
 
   const sym = (mint: string): string => SYMBOLS[mint] ?? `${mint.slice(0, 4)}…`;
 
+  /**
+   * Montant de token brut, coupé à une longueur lisible.
+   *
+   * Les fees sortent avec toutes leurs décimales (934,321084888) : sur un
+   * téléphone la ligne passe à la ligne et devient illisible, alors que les
+   * derniers chiffres n'apprennent rien. Les chiffres SIGNIFICATIFS sont
+   * conservés, pas un nombre fixe de décimales — sinon un token à très petite
+   * unité s'afficherait « 0,0000 ».
+   */
+  const amount = (v: number): string =>
+    v === 0 ? "0" : v >= 1 ? v.toFixed(4) : Number(v.toPrecision(4)).toString();
+
   if (!plan) {
     return (
       <span className="flex items-center gap-2">
@@ -136,7 +148,7 @@ export function ZapOut({
             void prepare();
           }}
           title={canSign ? "Retirer, réclamer les fees et fermer" : "Connecte un portefeuille capable de signer"}
-          className="min-h-[32px] shrink-0 rounded-[3px] bg-raised px-2 text-[11px] text-accent hover:bg-hover disabled:opacity-40"
+          className="min-h-[40px] shrink-0 rounded-[3px] bg-raised px-3 text-[12px] text-accent hover:bg-hover disabled:opacity-40 md:min-h-[32px] md:px-2 md:text-[11px]"
         >
           {busy ? "…" : "Zap out"}
         </button>
@@ -155,7 +167,7 @@ export function ZapOut({
         <Row label="Tu recevras environ" value={`${plan.expectedOut.toFixed(6)} ${sym(plan.outputMint)}`} strong />
         <Row label="Minimum garanti" value={`${plan.minOut.toFixed(6)} ${sym(plan.outputMint)}`} />
         <Row label="Impact prix" value={`${plan.priceImpactPct.toFixed(2)} %`} warn={plan.priceImpactPct > 5} />
-        <Row label="Fees réclamées" value={`${plan.claimedFees.x} / ${plan.claimedFees.y}`} />
+        <Row label="Fees réclamées" value={`${amount(plan.claimedFees.x)} / ${amount(plan.claimedFees.y)}`} />
       </dl>
       {plan.warnings.map((w) => (
         <p key={w} className="mt-1 text-warn">
@@ -166,14 +178,14 @@ export function ZapOut({
         <button
           disabled={busy}
           onClick={() => void send()}
-          className="min-h-[32px] rounded-[3px] bg-[#0e3d3a] px-3 text-up hover:brightness-125 disabled:opacity-40"
+          className="min-h-[40px] rounded-[3px] bg-[#0e3d3a] px-3 text-up hover:brightness-125 disabled:opacity-40 md:min-h-[32px]"
         >
           {step ?? "Confirmer et signer"}
         </button>
         <button
           disabled={busy}
           onClick={() => setPlan(null)}
-          className="min-h-[32px] rounded-[3px] px-2 text-fg-faint hover:text-fg"
+          className="min-h-[40px] rounded-[3px] px-3 text-fg-faint hover:text-fg md:min-h-[32px] md:px-2"
         >
           Annuler
         </button>
