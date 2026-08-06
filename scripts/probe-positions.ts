@@ -4,6 +4,7 @@
  * Utilise RPC_URL si défini, sinon le RPC public (lent et limité).
  */
 import { readPositions, isChainConfigured } from "../src/chain/positions";
+import { rangeCursor } from "../src/data/positions";
 
 async function main(): Promise<void> {
   if (!isChainConfigured()) {
@@ -22,6 +23,13 @@ async function main(): Promise<void> {
           `  fees dues $${p.unclaimedFeeUsd.toFixed(2).padStart(8)}` +
           `  ${p.inRange ? "dans la plage" : "HORS PLAGE  "}` +
           `  bins ${p.lowerBinId}..${p.upperBinId}`,
+      );
+      // Ce que la barre de plage va dessiner, en clair.
+      const c = rangeCursor(p.lowerBinId, p.upperBinId, p.activeBinId);
+      console.log(
+        `    actif ${p.activeBinId}  curseur ${(c.ratio * 100).toFixed(1)} %` +
+          `  ${c.outside ? `SORTI par le ${c.outside === "below" ? "bas" : "haut"}` : c.nearEdge ? "bord proche" : "au large"}` +
+          `  prix ${p.lowerPrice.toPrecision(6)} < ${p.currentPrice.toPrecision(6)} < ${p.upperPrice.toPrecision(6)}`,
       );
     }
     if (ps.length) console.log(`  total exposé : $${total.toFixed(2)}`);

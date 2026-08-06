@@ -32,8 +32,26 @@ export interface ChainPosition {
   totalShares: number;
   lowerBinId: number;
   upperBinId: number;
+  /**
+   * Bin où se trouve le prix maintenant. C'est lui qui situe la position à
+   * l'intérieur de sa plage, information que `inRange` seul écrase : au centre
+   * ou à un bin de la sortie, le booléen dit la même chose.
+   */
+  activeBinId: number;
   /** Le prix courant est-il dans la plage ? Hors plage, la position ne gagne rien. */
   inRange: boolean;
+  /**
+   * Bornes et prix courant, en prix de X exprimé en Y — la même convention que
+   * `currentPrice` du datapi. Calculés ici parce que la conversion dépend du bin
+   * step et des décimales des deux tokens : la refaire dans le navigateur
+   * dupliquerait une règle métier et exigerait d'y envoyer ces paramètres.
+   *
+   * `0` quand le calcul est impossible (bin step absent) : l'infobulle se tait
+   * alors, mais la barre reste juste, puisqu'elle se dessine en bins.
+   */
+  lowerPrice: number;
+  upperPrice: number;
+  currentPrice: number;
   poolName: string;
   /**
    * La pool a-t-elle pu être valorisée ? Certaines positions portent sur des
@@ -105,11 +123,24 @@ export async function readPositions(owner: string): Promise<ChainPosition[]> {
   // Import différé : le SDK est lourd et son packaging fragile. Le charger au
   // démarrage faisait tomber l'application entière — collecteur compris — sur
   // une fonctionnalité qui n'est utilisée que sur une page.
-  const { default: DLMM } = await import("@meteora-ag/dlmm");
+  const { default: DLMM, getPriceOfBinByBinId } = await import("@meteora-ag/dlmm");
   const byPair = await DLMM.getAllLbPairPositionsByUser(conn, ownerKey);
   const out: ChainPosition[] = [];
 
   for (const [poolAddress, info] of byPair.entries()) {
+    const activeBinId = info.lbPair.activeId;
+    // Prix réel d'un bin = (1 + binStep/10000)^binId, ramené aux unités
+    // affichées par les décimales des deux tokens — c'est exactement ce que
+    // fait `fromPricePerLamport()` du SDK, mais l'instance DLMM n'est pas
+    // construite ici : `getAllLbPairPositionsByUser` ne renvoie que des comptes.
+    const binStep = info.lbPair.binStep;
+    const decShift = 10 ** (info.tokenX.mint.decimals - info.tokenY.mint.decimals);
+    const priceOfBin = (binId: number): number => {
+      if (!binStep) return 0;
+      const p = Number(getPriceOfBinByBinId(binId, binStep)) * decShift;
+      return Number.isFinite(p) ? p : 0;
+    };
+
     const pool = await apiFor("dlmm").getPool(poolAddress);
     if (!pool) {
       // Pool inconnue du datapi : on liste quand même les positions, sans
@@ -130,7 +161,11 @@ export async function readPositions(owner: string): Promise<ChainPosition[]> {
           ),
           lowerBinId: d.lowerBinId,
           upperBinId: d.upperBinId,
-          inRange: info.lbPair.activeId >= d.lowerBinId && info.lbPair.activeId <= d.upperBinId,
+          activeBinId,
+          inRange: activeBinId >= d.lowerBinId && activeBinId <= d.upperBinId,
+          lowerPrice: priceOfBin(d.lowerBinId),
+          upperPrice: priceOfBin(d.upperBinId),
+          currentPrice: priceOfBin(activeBinId),
           poolName: `${poolAddress.slice(0, 6)}…`,
           valued: false,
         });
@@ -167,7 +202,14 @@ export async function readPositions(owner: string): Promise<ChainPosition[]> {
         totalShares: shares,
         lowerBinId: d.lowerBinId,
         upperBinId: d.upperBinId,
-        inRange: info.lbPair.activeId >= d.lowerBinId && info.lbPair.activeId <= d.upperBinId,
+        activeBinId,
+        inRange: activeBinId >= d.lowerBinId && activeBinId <= d.upperBinId,
+        lowerPrice: priceOfBin(d.lowerBinId),
+        upperPrice: priceOfBin(d.upperBinId),
+        // Prix du bin actif plutôt que celui du datapi : le curseur est posé sur
+        // ce bin, l'étiquette doit désigner le même point. Les deux ne diffèrent
+        // que d'un bin step, et le datapi a en plus quelques secondes de retard.
+        currentPrice: priceOfBin(activeBinId),
         poolName: pool.name,
         valued: true,
       });

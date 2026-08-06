@@ -60,6 +60,10 @@ export async function syncWallet(owner: string): Promise<number> {
         unclaimedFeeUsd: c.unclaimedFeeUsd,
         lowerBinId: c.lowerBinId,
         upperBinId: c.upperBinId,
+        activeBinId: c.activeBinId,
+        lowerPrice: c.lowerPrice,
+        upperPrice: c.upperPrice,
+        currentPrice: c.currentPrice,
         inRange: c.inRange ? 1 : 0,
         valued: c.valued ? 1 : 0,
       },
@@ -99,8 +103,15 @@ export async function syncWallet(owner: string): Promise<number> {
         valueUsd: 0,
         claimedFeeUsd: p.claimedFeeUsd,
         unclaimedFeeUsd: 0,
+        // Plage conservée telle qu'observée la dernière fois : la position est
+        // fermée, ces bornes ne sont plus qu'un souvenir, mais les écraser
+        // ferait passer une plage connue pour une plage absente.
         lowerBinId: p.lowerBinId,
         upperBinId: p.upperBinId,
+        activeBinId: p.activeBinId,
+        lowerPrice: p.lowerPrice,
+        upperPrice: p.upperPrice,
+        currentPrice: p.currentPrice,
         inRange: 0,
         valued: p.valued,
       },

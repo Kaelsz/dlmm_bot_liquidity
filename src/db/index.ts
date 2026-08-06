@@ -82,6 +82,10 @@ export interface PositionRow {
   unclaimedFeeUsd: number;
   lowerBinId: number;
   upperBinId: number;
+  activeBinId: number;
+  lowerPrice: number;
+  upperPrice: number;
+  currentPrice: number;
   inRange: number;
   valued: number;
 }
@@ -454,7 +458,9 @@ export class RadarDb {
                 withdrawn_usd AS withdrawnUsd, total_shares AS totalShares,
                 value_usd AS valueUsd, claimed_fee_usd AS claimedFeeUsd,
                 unclaimed_fee_usd AS unclaimedFeeUsd, lower_bin_id AS lowerBinId,
-                upper_bin_id AS upperBinId, in_range AS inRange, valued
+                upper_bin_id AS upperBinId, active_bin_id AS activeBinId,
+                lower_price AS lowerPrice, upper_price AS upperPrice,
+                current_price AS currentPrice, in_range AS inRange, valued
            FROM wallet_positions WHERE owner = ?
           ORDER BY closed_at IS NOT NULL, last_seen_at DESC`,
       )
@@ -465,11 +471,13 @@ export class RadarDb {
     INSERT INTO wallet_positions (
       position_address, owner, pool_address, pool_name, first_seen_at, last_seen_at,
       deposited_usd, withdrawn_usd, total_shares, value_usd, claimed_fee_usd,
-      unclaimed_fee_usd, lower_bin_id, upper_bin_id, in_range, valued
+      unclaimed_fee_usd, lower_bin_id, upper_bin_id, active_bin_id,
+      lower_price, upper_price, current_price, in_range, valued
     ) VALUES (
       @positionAddress, @owner, @poolAddress, @poolName, @ts, @ts,
       @depositedUsd, @withdrawnUsd, @totalShares, @valueUsd, @claimedFeeUsd,
-      @unclaimedFeeUsd, @lowerBinId, @upperBinId, @inRange, @valued
+      @unclaimedFeeUsd, @lowerBinId, @upperBinId, @activeBinId,
+      @lowerPrice, @upperPrice, @currentPrice, @inRange, @valued
     )
     ON CONFLICT(position_address) DO UPDATE SET
       last_seen_at = @ts, closed_at = NULL, pool_name = @poolName,
@@ -477,6 +485,8 @@ export class RadarDb {
       total_shares = @totalShares, value_usd = @valueUsd,
       claimed_fee_usd = @claimedFeeUsd, unclaimed_fee_usd = @unclaimedFeeUsd,
       lower_bin_id = @lowerBinId, upper_bin_id = @upperBinId,
+      active_bin_id = @activeBinId, lower_price = @lowerPrice,
+      upper_price = @upperPrice, current_price = @currentPrice,
       in_range = @inRange, valued = @valued
   `;
 

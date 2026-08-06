@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Nav } from "@/components/Nav";
 import { PoolDetail } from "@/components/PoolDetailLazy";
+import { RangeBar } from "@/components/RangeBar";
 import { WalletButtons, type ConnectedWallet } from "@/components/WalletConnect";
 import { ZapOut } from "@/components/ZapOut";
+import { rangeCursor } from "@/data/positions";
 import { fmtAge, fmtPct, fmtUsd } from "@/lib/format";
 
 interface Roi {
@@ -28,6 +30,10 @@ interface Position {
   unclaimedFeeUsd: number;
   lowerBinId: number;
   upperBinId: number;
+  activeBinId: number;
+  lowerPrice: number;
+  upperPrice: number;
+  currentPrice: number;
   roi: Roi;
 }
 
@@ -219,6 +225,22 @@ function Total({
   );
 }
 
+/** État de la plage en un mot, pour les surfaces sans survol. */
+function RangeLabel({
+  lowerBinId,
+  upperBinId,
+  activeBinId,
+}: {
+  lowerBinId: number;
+  upperBinId: number;
+  activeBinId: number;
+}) {
+  const { outside, nearEdge } = rangeCursor(lowerBinId, upperBinId, activeBinId);
+  if (outside) return <span className="shrink-0 text-warn">hors plage</span>;
+  if (nearEdge) return <span className="shrink-0 text-warn">proche du bord</span>;
+  return <span className="shrink-0 text-up">dans la plage</span>;
+}
+
 function Table({
   title,
   rows,
@@ -248,7 +270,7 @@ function Table({
             <th className="w-[90px] px-2 py-1.5 text-right">P&amp;L</th>
             <th className="w-[80px] px-2 py-1.5 text-right">ROI</th>
             <th className="w-[90px] px-2 py-1.5 text-right">Engagé</th>
-            <th className="w-[80px] px-2 py-1.5 text-left">Plage</th>
+            <th className="w-[120px] px-2 py-1.5 text-left">Plage</th>
             <th className="w-[90px] px-2 py-1.5 text-right">Depuis</th>
             <th className="w-[130px] px-2 py-1.5 text-left">Action</th>
           </tr>
@@ -287,16 +309,10 @@ function Table({
               <td className="tnum px-2 text-right text-fg-faint">
                 {p.valued ? fmtUsd(p.roi.depositedUsd) : "—"}
               </td>
+              {/* Une position fermée n'a plus de plage utile : la dessiner
+                  laisserait croire qu'elle suit encore le marché. */}
               <td className="px-2">
-                {p.closed ? (
-                  <span className="text-fg-faint">fermée</span>
-                ) : p.inRange ? (
-                  <span className="text-up">dans la plage</span>
-                ) : (
-                  <span className="text-warn" title="hors plage : la position ne perçoit plus de fees">
-                    hors plage
-                  </span>
-                )}
+                {p.closed ? <span className="text-fg-faint">fermée</span> : <RangeBar {...p} />}
               </td>
               <td
                 className="tnum px-2 text-right text-fg-faint"
@@ -356,13 +372,16 @@ function Table({
                 </span>
               </span>
             </div>
-            <div className="flex items-center gap-3 text-[11px] text-fg-faint">
+            {/* Sur mobile la barre garde son libellé : il n'y a pas de survol,
+                donc l'infobulle qui porte l'état sur desktop est hors d'atteinte. */}
+            <div className="flex items-center gap-2 text-[11px] text-fg-faint">
               {p.closed ? (
                 <span>fermée</span>
-              ) : p.inRange ? (
-                <span className="text-up">dans la plage</span>
               ) : (
-                <span className="text-warn">hors plage</span>
+                <>
+                  <RangeBar {...p} />
+                  <RangeLabel {...p} />
+                </>
               )}
               <span className="ml-auto tnum">depuis {fmtAge(p.roi.since, now ?? p.lastSeenAt)}</span>
             </div>

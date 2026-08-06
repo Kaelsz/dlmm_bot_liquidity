@@ -117,6 +117,56 @@ export function computeRoi(t: PositionTracking, s: PositionSnapshot): PositionRo
   };
 }
 
+/** Où se trouve le prix à l'intérieur de la plage d'une position. */
+export interface RangeCursor {
+  /** 0 = borne basse, 1 = borne haute. Toujours dans [0, 1], même hors plage. */
+  ratio: number;
+  /** Côté par lequel le prix est sorti. `null` tant qu'il est dans la plage. */
+  outside: "below" | "above" | null;
+  /** Encore dedans, mais assez près d'un bord pour que la sortie soit imminente. */
+  nearEdge: boolean;
+}
+
+/**
+ * Sous cette fraction de la largeur de la plage, un bord est « proche ».
+ *
+ * C'est l'avertissement qui manquait : « dans la plage » se disait de la même
+ * façon au centre et à un bin de la sortie, alors que ce sont deux situations
+ * opposées.
+ */
+export const NEAR_EDGE_FRACTION = 0.1;
+
+/**
+ * Place le bin actif dans la plage `[lower, upper]`.
+ *
+ * Le calcul est fait en **identifiants de bin**, pas en prix : la liquidité est
+ * répartie bin par bin, donc une barre linéaire en bins est fidèle, alors que le
+ * prix est géométrique et déplacerait le curseur.
+ *
+ * La plage d'un seul bin (`upper === lower`) n'a pas de largeur : le curseur va
+ * au centre, et le bord est déclaré proche — ce qui est exact, puisque le
+ * moindre mouvement fait sortir.
+ */
+export function rangeCursor(lower: number, upper: number, active: number): RangeCursor {
+  if (!Number.isFinite(lower) || !Number.isFinite(upper) || !Number.isFinite(active)) {
+    return { ratio: 0.5, outside: null, nearEdge: false };
+  }
+  const lo = Math.min(lower, upper);
+  const hi = Math.max(lower, upper);
+  const width = hi - lo;
+
+  if (active < lo) return { ratio: 0, outside: "below", nearEdge: false };
+  if (active > hi) return { ratio: 1, outside: "above", nearEdge: false };
+  if (width <= 0) return { ratio: 0.5, outside: null, nearEdge: true };
+
+  const ratio = (active - lo) / width;
+  return {
+    ratio,
+    outside: null,
+    nearEdge: Math.min(ratio, 1 - ratio) < NEAR_EDGE_FRACTION,
+  };
+}
+
 /**
  * Position disparue du relevé : elle a été fermée.
  *

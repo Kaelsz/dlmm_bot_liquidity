@@ -28,6 +28,10 @@ export const MIGRATIONS: string[] = [
   "ALTER TABLE pool_metrics ADD COLUMN rate_updates INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE tracked_wallets ADD COLUMN last_viewed_at INTEGER",
   "ALTER TABLE pools ADD COLUMN risky_market_cap REAL NOT NULL DEFAULT 0",
+  "ALTER TABLE wallet_positions ADD COLUMN active_bin_id INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE wallet_positions ADD COLUMN lower_price REAL NOT NULL DEFAULT 0",
+  "ALTER TABLE wallet_positions ADD COLUMN upper_price REAL NOT NULL DEFAULT 0",
+  "ALTER TABLE wallet_positions ADD COLUMN current_price REAL NOT NULL DEFAULT 0",
 ];
 
 export const SCHEMA = `
@@ -64,6 +68,13 @@ CREATE TABLE IF NOT EXISTS wallet_positions (
   unclaimed_fee_usd REAL NOT NULL DEFAULT 0,
   lower_bin_id     INTEGER NOT NULL DEFAULT 0,
   upper_bin_id     INTEGER NOT NULL DEFAULT 0,
+  -- Bin où était le prix au dernier relevé : situe la position DANS sa plage,
+  -- ce que in_range seul ne dit pas.
+  active_bin_id    INTEGER NOT NULL DEFAULT 0,
+  -- Bornes et prix courant, prix de X en Y. 0 = non calculable.
+  lower_price      REAL NOT NULL DEFAULT 0,
+  upper_price      REAL NOT NULL DEFAULT 0,
+  current_price    REAL NOT NULL DEFAULT 0,
   in_range         INTEGER NOT NULL DEFAULT 0,
   valued           INTEGER NOT NULL DEFAULT 1
 );
