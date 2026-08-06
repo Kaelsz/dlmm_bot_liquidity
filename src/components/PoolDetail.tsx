@@ -13,7 +13,9 @@ import {
   YAxis,
 } from "recharts";
 import { heatTier, isRateReliable, signalCoverage, MIN_SIGNAL_COVERAGE } from "@/data/metrics";
+import { OpenPosition } from "@/components/OpenPosition";
 import { TokenLinksVerbose } from "@/components/TokenLinks";
+import { WalletBar, useConnectedWallet } from "@/components/WalletConnect";
 import {
   fmtAge,
   fmtAxisTime,
@@ -56,6 +58,7 @@ const WINDOW_HOURS: Record<string, number> = { "1h": 1, "6h": 6, "24h": 24, "7d"
  * it has instead of drawing a sliver.
  */
 export function PoolDetail({ address, onClose }: { address: string; onClose: () => void }) {
+  const wallet = useConnectedWallet();
   const [data, setData] = useState<PoolDetailResponse | null>(null);
   const [windowKey, setWindowKey] = useState<string>("6h");
   const [error, setError] = useState<string | null>(null);
@@ -165,6 +168,27 @@ export function PoolDetail({ address, onClose }: { address: string; onClose: () 
 
           {p && data ? (
             <>
+              {/* Ouverture de position en tête du panneau : c'est la décision
+                  que tout le reste du panneau sert à éclairer. Réservée au DLMM,
+                  seul protocole dont le SDK sait construire une position ici. */}
+              {p.protocol === "dlmm" ? (
+                <Section title="Prendre une position">
+                  {wallet ? (
+                    <OpenPosition
+                      poolAddress={p.address}
+                      owner={wallet.address}
+                      wallet={wallet.wallet}
+                      account={wallet.account}
+                    />
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-fg-faint">
+                      <span>Connecte un portefeuille pour ouvrir une position :</span>
+                      <WalletBar />
+                    </div>
+                  )}
+                </Section>
+              ) : null}
+
               <Section title="Prix">
                 <PriceChart candles={data.candles} start={start} end={end} />
               </Section>

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { WalletProvider } from "@/components/WalletConnect";
 
 const sans = Geist({ subsets: ["latin"], variable: "--font-geist-sans", display: "swap" });
 const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono", display: "swap" });
@@ -20,7 +21,9 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="fr" className={`${sans.variable} ${mono.variable}`}>
-      <body className="h-dvh overflow-hidden bg-app text-fg antialiased">{children}</body>
+      <body className="h-dvh overflow-hidden bg-app text-fg antialiased">
+        <WalletProvider>{children}</WalletProvider>
+      </body>
     </html>
   );
 }

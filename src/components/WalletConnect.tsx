@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { getWallets } from "@wallet-standard/app";
 
 
@@ -142,4 +142,51 @@ export function WalletButtons({
       ))}
     </span>
   );
+}
+
+/**
+ * Le portefeuille connecté, partagé par toute l'application.
+ *
+ * Il vivait dans l'état local de la vue Positions, ce qui suffisait tant que le
+ * Zap Out était la seule action signée. Ouvrir une position se fait depuis le
+ * panneau de détail d'une pool, qui s'ouvre aussi bien depuis la vue Marché :
+ * sans contexte, il aurait fallu passer le portefeuille de main en main à
+ * travers deux arbres de composants, ou le connecter deux fois.
+ *
+ * Rien n'est persisté ici. Une reconnexion au rechargement de la page serait
+ * une décision à part entière — le portefeuille redemande son accord, et c'est
+ * bien ainsi.
+ */
+const WalletContext = createContext<{
+  wallet: ConnectedWallet | null;
+  setWallet: (w: ConnectedWallet | null) => void;
+}>({ wallet: null, setWallet: () => {} });
+
+export function WalletProvider({ children }: { children: React.ReactNode }) {
+  const [wallet, setWallet] = useState<ConnectedWallet | null>(null);
+  const value = useMemo(() => ({ wallet, setWallet }), [wallet]);
+  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
+}
+
+export function useConnectedWallet(): ConnectedWallet | null {
+  return useContext(WalletContext).wallet;
+}
+
+/** Boutons de connexion branchés sur le contexte, pour les vues qui n'ont pas
+ *  besoin de savoir ce qu'elles font du résultat. */
+export function WalletBar({ onError }: { onError?: (m: string) => void }) {
+  const { wallet, setWallet } = useContext(WalletContext);
+  const handle = useCallback((w: ConnectedWallet) => setWallet(w), [setWallet]);
+  if (wallet) {
+    return (
+      <span className="flex items-center gap-1.5 text-fg-faint">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={wallet.icon} alt="" className="h-4 w-4 rounded-[2px]" />
+        <span className="tnum">
+          {wallet.address.slice(0, 4)}…{wallet.address.slice(-4)}
+        </span>
+      </span>
+    );
+  }
+  return <WalletButtons onConnected={handle} onError={onError ?? (() => {})} />;
 }
