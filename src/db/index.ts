@@ -48,6 +48,7 @@ export interface LeaderboardRow {
   tokenPairs: number | null;
   tokenVolumeTruncated: number | null;
   tokenVolumeAt: number | null;
+  tokenVolumeUnavailable: number | null;
   tokenXHolders: number;
   tokenXVerified: number;
   tokenXFreezeDisabled: number;
@@ -123,6 +124,7 @@ const LEADERBOARD_SELECT = `
     p.risky_market_cap AS marketCap, p.risky_mint AS riskyMint,
     tv.volume_m5_usd AS tokenVolumeM5, tv.pairs AS tokenPairs,
     tv.truncated AS tokenVolumeTruncated, tv.checked_at AS tokenVolumeAt,
+    tv.unavailable AS tokenVolumeUnavailable,
     p.token_x_holders AS tokenXHolders,
     p.token_x_verified AS tokenXVerified,
     p.token_x_freeze_disabled AS tokenXFreezeDisabled,
@@ -415,7 +417,8 @@ export class RadarDb {
         // pool : trier sur le volume de pool renverrait un classement qui ne
         // correspond pas à ce qui est à l'écran. Les tokens jamais mesurés
         // (LEFT JOIN à NULL) tombent en fin de liste plutôt qu'en tête.
-        volumeRate: "COALESCE(tv.volume_m5_usd, -1) DESC",
+        volumeRate:
+          "CASE WHEN tv.unavailable = 1 THEN -1 ELSE COALESCE(tv.volume_m5_usd, -1) END DESC",
         age: "p.created_at DESC",
         accel: "m.fee_accel DESC",
       }[f.sort ?? "heat"] ?? "m.heat_pct_hr DESC";
@@ -528,11 +531,11 @@ export class RadarDb {
   // ---- volume du token (tous DEX) ----------------------------------------
 
   private static readonly UPSERT_TOKEN_VOLUME = `
-    INSERT INTO token_volume (mint, checked_at, volume_m5_usd, pairs, truncated)
-    VALUES (@mint, @checkedAt, @volumeM5Usd, @pairs, @truncated)
+    INSERT INTO token_volume (mint, checked_at, volume_m5_usd, pairs, truncated, unavailable)
+    VALUES (@mint, @checkedAt, @volumeM5Usd, @pairs, @truncated, @unavailable)
     ON CONFLICT(mint) DO UPDATE SET
       checked_at = @checkedAt, volume_m5_usd = @volumeM5Usd,
-      pairs = @pairs, truncated = @truncated
+      pairs = @pairs, truncated = @truncated, unavailable = @unavailable
   `;
 
   upsertTokenVolume(v: TokenVolume): void {
@@ -542,31 +545,42 @@ export class RadarDb {
       volumeM5Usd: v.volumeM5Usd,
       pairs: v.pairs,
       truncated: v.truncated ? 1 : 0,
+      unavailable: v.unavailable ? 1 : 0,
     });
   }
 
   /**
-   * Mints dont la mesure manque ou a dépassé le TTL.
+   * Mints à (re)mesurer, choisis directement en SQL.
    *
-   * Même forme que `mintsNeedingRugcheck` : c'est la table elle-même qui sert
-   * de cache, et le plafond borne le nombre d'appels par cycle quelle que soit
-   * la taille du classement.
+   * LA PREMIÈRE VERSION PARTAIT DU CLASSEMENT PAR HEAT, et c'était l'erreur :
+   * l'utilisateur filtre et trie comme il veut, donc n'importe quelle pool de
+   * la base peut être à l'écran. Mesuré : en triant par TVL, 2 lignes sur 100
+   * seulement avaient une valeur. On balaie donc **toutes** les pools dont les
+   * métriques sont fraîches, et la file est ordonnée pour que ce qui manque
+   * arrive avant ce qui est simplement périmé.
    */
-  mintsNeedingVolume(candidateMints: string[], ttlMs: number, limit: number): string[] {
-    if (candidateMints.length === 0) return [];
-    const cutoff = Date.now() - ttlMs;
-    const fresh = new Set(
-      (
-        this.db
-          .prepare(
-            `SELECT mint FROM token_volume
-              WHERE checked_at >= ?
-                AND mint IN (${candidateMints.map(() => "?").join(",")})`,
-          )
-          .all(cutoff, ...candidateMints) as Array<{ mint: string }>
-      ).map((r) => r.mint),
-    );
-    return candidateMints.filter((m) => m && !fresh.has(m)).slice(0, limit);
+  mintsNeedingVolume(ttlMs: number, freshMetricsMs: number, limit: number): string[] {
+    const now = Date.now();
+    return (
+      this.db
+        .prepare(
+          `SELECT p.risky_mint AS mint
+             FROM pools p
+             JOIN pool_metrics m ON m.pool_address = p.address
+             LEFT JOIN token_volume tv ON tv.mint = p.risky_mint
+            WHERE p.risky_mint <> ''
+              AND m.ts >= @freshCutoff
+              AND (tv.checked_at IS NULL OR tv.checked_at < @ttlCutoff)
+            GROUP BY p.risky_mint
+            ORDER BY MIN(tv.checked_at) IS NOT NULL,
+                     MIN(tv.checked_at),
+                     MAX(m.heat_pct_hr) DESC
+            LIMIT @limit`,
+        )
+        .all({ freshCutoff: now - freshMetricsMs, ttlCutoff: now - ttlMs, limit }) as Array<{
+        mint: string;
+      }>
+    ).map((r) => r.mint);
   }
 
   /** Purge les mesures qu'aucune pool suivie ne réclame plus. */

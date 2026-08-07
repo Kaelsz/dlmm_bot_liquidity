@@ -38,6 +38,8 @@ export interface TokenVolume {
    * minorant, et l'interface ne doit pas la présenter comme un total.
    */
   truncated: boolean;
+  /** La mesure a échoué : la valeur ne veut rien dire et ne doit pas s'afficher. */
+  unavailable: boolean;
   checkedAt: number;
 }
 
@@ -76,6 +78,7 @@ export function sumTokenVolume(
     // Le plafond porte sur la réponse entière, pas sur les seules paires
     // retenues : c'est bien `pairs.length` qu'il faut comparer.
     truncated: pairs.length >= MAX_PAIRS,
+    unavailable: false,
     checkedAt: now,
   };
 }
@@ -89,9 +92,9 @@ export function volumePerMinute(v: Pick<TokenVolume, "volumeM5Usd">): number {
 // en-tête. Mesuré : 12 requêtes en 3,2 s sans refus. On se tient volontairement
 // bas — la réponse porte `cache-control: max-age=30`, donc sonder plus vite
 // qu'une fois par demi-minute ne rendrait de toute façon rien de neuf.
-const limiter = new RateLimiter(4);
+const limiter = new RateLimiter(3);
 
-export async function fetchTokenVolume(mint: string): Promise<TokenVolume | null> {
+export async function fetchTokenVolume(mint: string): Promise<TokenVolume> {
   await limiter.acquire();
   try {
     const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
@@ -100,12 +103,23 @@ export async function fetchTokenVolume(mint: string): Promise<TokenVolume | null
     });
     if (!res.ok) {
       logger.debug({ mint, status: res.status }, "dexscreener : réponse non-OK");
-      return null;
+      return unavailable(mint);
     }
     const body = (await res.json()) as { pairs?: DexPair[] | null };
     return sumTokenVolume(body.pairs ?? [], mint);
   } catch (err) {
     logger.debug({ mint, err }, "dexscreener : requête échouée");
-    return null;
+    return unavailable(mint);
   }
+}
+
+/**
+ * Échec enregistré plutôt que silencieux.
+ *
+ * Rendre `null` laissait le mint en tête de la file « jamais mesuré » à chaque
+ * cycle : quelques tokens inconnus de DexScreener suffisaient à consommer tout
+ * le budget et à affamer les autres.
+ */
+function unavailable(mint: string): TokenVolume {
+  return { mint, volumeM5Usd: 0, pairs: 0, truncated: false, unavailable: true, checkedAt: Date.now() };
 }

@@ -56,6 +56,10 @@ describe("volume tous DEX d'un token", () => {
     expect(v.truncated).toBe(false);
   });
 
+  it("marque une mesure réussie comme disponible", () => {
+    expect(sumTokenVolume([pair(MINT, 10)], MINT, 0).unavailable).toBe(false);
+  });
+
   it("convertit la fenêtre de 5 minutes en taux par minute", () => {
     expect(volumePerMinute({ volumeM5Usd: 394_909 })).toBeCloseTo(78_981.8);
     expect(volumePerMinute({ volumeM5Usd: 0 })).toBe(0);

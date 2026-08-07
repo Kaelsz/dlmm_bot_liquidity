@@ -33,6 +33,7 @@ export const MIGRATIONS: string[] = [
   "ALTER TABLE wallet_positions ADD COLUMN upper_price REAL NOT NULL DEFAULT 0",
   "ALTER TABLE wallet_positions ADD COLUMN current_price REAL NOT NULL DEFAULT 0",
   "ALTER TABLE pools ADD COLUMN risky_mint TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE token_volume ADD COLUMN unavailable INTEGER NOT NULL DEFAULT 0",
 ];
 
 export const SCHEMA = `
@@ -199,7 +200,11 @@ CREATE TABLE IF NOT EXISTS token_volume (
   volume_m5_usd  REAL NOT NULL DEFAULT 0,
   pairs          INTEGER NOT NULL DEFAULT 0,
   -- Le plafond de 30 paires de l'API a été atteint : la somme est un minorant.
-  truncated      INTEGER NOT NULL DEFAULT 0
+  truncated      INTEGER NOT NULL DEFAULT 0,
+  -- La mesure a échoué (API muette, token inconnu d'elle). On enregistre quand
+  -- même la tentative : sans ça, un mint introuvable resterait éternellement en
+  -- tête de la file « jamais mesuré » et affamerait tous les autres.
+  unavailable    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_token_volume_checked ON token_volume(checked_at DESC);
 

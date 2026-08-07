@@ -143,18 +143,21 @@ export const config = {
     /**
      * Volume du token sur tous les DEX (DexScreener).
      *
-     * La réponse porte `cache-control: max-age=30` : rafraîchir plus vite ne
-     * rendrait rien de neuf. 90 s laisse une marge et divise la charge par
-     * trois par rapport à un cycle de découverte.
+     * TTL calé sur la fenêtre de la donnée elle-même : DexScreener rend une
+     * moyenne sur 5 minutes, donc rafraîchir plus vite ne rend rien de neuf.
+     * 4 minutes laisse le balayage complet reboucler avant péremption.
      */
-    cacheTtlMs: 90_000,
+    cacheTtlMs: 240_000,
     /**
-     * Mints rafraîchis par cycle. Le classement affiché en compte une centaine ;
-     * à 40 par cycle de 20 s, tout le tableau est à jour en moins d'une minute
-     * sans jamais dépasser ~2 requêtes/seconde.
+     * Budget par cycle. La population n'est pas le top du classement mais
+     * TOUTES les pools à métriques fraîches — 651 mints distincts sur une base
+     * de 1 000 pools. À 60 par cycle de 20 s, le balayage complet prend ~217 s,
+     * sous le TTL de 240 s, pour 3 requêtes/seconde.
      */
-    maxLookupsPerCycle: 40,
+    maxLookupsPerCycle: 60,
     intervalMs: 20_000,
+    /** Une pool dont les métriques ont plus que ça n'est plus affichable. */
+    freshMetricsMs: 15 * 60_000,
     /** Au-delà, une mesure devenue inutile est effacée. */
     retentionMs: 6 * 60 * 60_000,
   },

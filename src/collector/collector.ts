@@ -323,22 +323,20 @@ export class Collector {
    * mesure — puis filtrés par le TTL de la table, qui sert de cache.
    */
   private async runTokenVolume(): Promise<void> {
-    const rows = this.db.leaderboard({ limit: config.display.leaderboardSize });
-    const mints = [...new Set(rows.map((r) => r.riskyMint).filter(Boolean))];
     const todo = this.db.mintsNeedingVolume(
-      mints,
       config.tokenVolume.cacheTtlMs,
+      config.tokenVolume.freshMetricsMs,
       config.tokenVolume.maxLookupsPerCycle,
     );
     if (todo.length === 0) return;
 
     const results = await Promise.all(todo.map((m) => fetchTokenVolume(m)));
     const write = this.db.db.transaction((vs: typeof results) => {
-      for (const v of vs) if (v) this.db.upsertTokenVolume(v);
+      for (const v of vs) this.db.upsertTokenVolume(v);
     });
     write(results);
 
-    const ok = results.filter(Boolean).length;
+    const ok = results.filter((v) => !v.unavailable).length;
     logger.debug({ asked: todo.length, resolved: ok }, "volume token cycle");
     if (ok > 0) this.bus.emit("update");
   }

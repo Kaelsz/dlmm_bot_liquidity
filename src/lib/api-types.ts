@@ -154,8 +154,15 @@ export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {
     ts: r.ts,
     feeRateUsdMin: r.feeRateUsdMin,
     volumeRateUsdMin: r.volumeRateUsdMin,
+    // `null` = pas de mesure exploitable, et c'est distinct de zéro. Une
+    // requête qui a échoué, ou un token que DexScreener ne connaît pas, doit
+    // afficher un tiret : « $0 » se lirait comme « aucun échange », ce qui
+    // serait une affirmation qu'on n'a pas les moyens de faire.
     tokenVolumeUsdMin:
-      r.tokenVolumeM5 === null || r.tokenVolumeM5 === undefined
+      r.tokenVolumeM5 === null ||
+      r.tokenVolumeM5 === undefined ||
+      r.tokenVolumeUnavailable === 1 ||
+      (r.tokenPairs ?? 0) === 0
         ? null
         : volumePerMinute({ volumeM5Usd: r.tokenVolumeM5 }),
     tokenVolumePairs: r.tokenPairs ?? 0,
