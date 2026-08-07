@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { getWallets } from "@wallet-standard/app";
+import { phantomBrowseLink } from "@/lib/deeplink";
 
 
 /**
@@ -14,9 +15,11 @@ import { getWallets } from "@wallet-standard/app";
  * soit codé ici.
  *
  * Rien n'est signé à cette étape : `connect` ne rend qu'une clé publique, et
- * lire des positions n'exige aucune signature. La saisie manuelle d'adresse
- * reste disponible en repli — sur un navigateur sans extension, c'est le seul
- * chemin.
+ * lire des positions n'exige aucune signature.
+ *
+ * Sur téléphone il n'y a pas d'extension, donc rien à détecter : <NoWallet>
+ * renvoie alors vers le navigateur intégré du portefeuille, seul endroit où la
+ * connexion est possible depuis un mobile.
  */
 
 const CONNECT = "standard:connect";
@@ -93,6 +96,84 @@ export async function connectWallet(w: Wallet): Promise<ConnectedWallet> {
 }
 
 /**
+ * Ce qu'on affiche quand aucun portefeuille ne s'est enregistré.
+ *
+ * SUR TÉLÉPHONE, CE N'EST PAS UNE ERREUR, C'EST LA NORME. Le Wallet Standard
+ * suppose une extension de navigateur ; il n'y en a pas sur mobile, donc la
+ * liste est vide sur Safari comme sur Chrome. Le chemin qui marche est d'ouvrir
+ * le site depuis le navigateur intégré du portefeuille, où celui-ci s'injecte
+ * exactement comme une extension.
+ *
+ * L'ancien message disait « colle ton adresse ci-dessous ». C'était vrai dans
+ * la vue Positions, où coller une adresse donne la lecture seule — mais ça
+ * présentait un repli comme le seul chemin, et surtout c'était faux dans le
+ * panneau de détail d'une pool : il n'y a pas de champ d'adresse à cet endroit,
+ * et une adresse ne permet de toute façon pas de signer. La mention disparaît
+ * sans rien coûter : le champ de la vue Positions porte déjà le placeholder
+ * « ou colle une adresse de wallet ».
+ */
+function NoWallet() {
+  // `null` tant que l'effet n'a pas tourné : `PositionsView` est rendu côté
+  // serveur, où `window` n'existe pas. Lire le média au rendu ferait diverger
+  // l'arbre serveur de l'arbre client et React jetterait le HTML — même motif
+  // que l'horloge de <MarketTable>.
+  const [env, setEnv] = useState<{ touch: boolean; href: string; deeplink: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const href = window.location.href;
+    setEnv({
+      // `(pointer: coarse)` plutôt qu'un reniflage d'userAgent : on teste ce
+      // dont dépend la réponse — un doigt, donc pas d'extension possible.
+      touch: window.matchMedia("(pointer: coarse)").matches,
+      href,
+      deeplink: phantomBrowseLink(href, window.location.origin),
+    });
+  }, []);
+
+  if (env === null) return null;
+
+  if (!env.touch) {
+    return (
+      <span className="text-fg-faint">
+        Aucun portefeuille détecté — installe Phantom, Jupiter ou Solflare dans ce navigateur.
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <a
+        href={env.deeplink}
+        className="flex min-h-[44px] items-center rounded-[3px] bg-raised px-3 text-accent active:bg-hover"
+      >
+        Ouvrir dans Phantom
+      </a>
+      <button
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(env.href);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2_000);
+          } catch {
+            // Presse-papiers refusé (contexte non sécurisé, permission) : le
+            // bouton ne doit pas mentir en affichant « copié ».
+            setCopied(false);
+          }
+        }}
+        className="min-h-[44px] rounded-[3px] px-3 text-fg-faint active:text-fg"
+      >
+        {copied ? "lien copié" : "Copier le lien"}
+      </button>
+      <span className="text-[10px] leading-snug text-fg-faint">
+        Sur téléphone, un portefeuille ne peut se connecter que depuis son propre navigateur
+        intégré. Colle le lien dans celui de Jupiter Mobile ou d&apos;un autre portefeuille.
+      </span>
+    </span>
+  );
+}
+
+/**
  * Boutons de connexion, un par portefeuille détecté.
  *
  * Aucune liste codée en dur : ce qui s'affiche est ce qui est réellement
@@ -109,13 +190,7 @@ export function WalletButtons({
   const wallets = useWallets();
   const [busy, setBusy] = useState<string | null>(null);
 
-  if (wallets.length === 0) {
-    return (
-      <span className="text-fg-faint">
-        Aucun portefeuille détecté — colle ton adresse ci-dessous.
-      </span>
-    );
-  }
+  if (wallets.length === 0) return <NoWallet />;
 
   return (
     <span className="flex flex-wrap items-center gap-2">
