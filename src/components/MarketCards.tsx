@@ -80,10 +80,12 @@ export function MarketCards({
                   <Num value={r.feeRateUsdMin} format={fmtRate} className="font-semibold text-fg" />
                 </Tentative>
               </Metric>
-              <Metric label="vol/min">
-                <Tentative low={low} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
-                  <Num value={r.volumeRateUsdMin} format={fmtRate} className="text-fg-dim" />
-                </Tentative>
+              {/* Volume du token, tous DEX. Pas de <Tentative> : ce marqueur
+                  qualifie la fenêtre de dérivation des fees, pas cette mesure. */}
+              <Metric label="vol tok/min">
+                <span className="tnum text-fg-dim">
+                  {r.tokenVolumeUsdMin === null ? "—" : fmtRate(r.tokenVolumeUsdMin)}
+                </span>
               </Metric>
               <span className="ml-auto shrink-0">
                 <Sparkline points={r.sparkline} />

@@ -14,7 +14,7 @@ const COLS = [
   { key: "pool", label: "Pool", w: "min-w-[190px] w-[190px]", align: "left" },
   { key: "heat", label: "Heat %/h", w: "w-[92px]", align: "right", sortable: true },
   { key: "rate", label: "Fees/min", w: "w-[74px]", align: "right", sortable: true },
-  { key: "volumeRate", label: "Vol/min", w: "w-[74px]", align: "right", sortable: true },
+  { key: "volumeRate", label: "Vol tok/min", w: "w-[84px]", align: "right", sortable: true },
   { key: "spark", label: "Tendance", w: "w-[72px]", align: "left" },
   { key: "accel", label: "Accél.", w: "w-[76px]", align: "right", sortable: true },
   { key: "tvl", label: "TVL", w: "w-[74px]", align: "right", sortable: true },
@@ -49,6 +49,37 @@ const SORT_FOR_COL: Partial<Record<string, SortKey>> = {
   age: "age",
 };
 
+
+/**
+ * Ce que l'infobulle du volume doit dire, puisque la colonne a changé de sens.
+ *
+ * Trois choses qu'on ne peut pas deviner du chiffre seul : qu'il couvre tous
+ * les DEX et pas seulement Meteora, qu'il est moyenné sur 5 minutes là où les
+ * fees sont vraiment à la minute, et le volume de la pool — celui qui explique
+ * les fees encaissées, et qui disparaîtrait sinon de l'interface.
+ */
+function tokenVolTitle(r: PoolRow): string {
+  if (r.tokenVolumeUsdMin === null) return "volume du token pas encore mesuré";
+  const lines = [
+    `volume du token, tous DEX — moyenne sur 5 min`,
+    `${r.tokenVolumePairs} paire${r.tokenVolumePairs > 1 ? "s" : ""}${r.tokenVolumeTruncated ? " (30 max atteint : somme partielle)" : ""}`,
+    `cette pool seule : ${fmtRate(r.volumeRateUsdMin)} (dérivé à la minute)`,
+  ];
+  const share =
+    r.tokenVolumeUsdMin > 0 ? (r.volumeRateUsdMin / r.tokenVolumeUsdMin) * 100 : null;
+  // Le rapport peut dépasser 100 % sans que rien ne soit faux : la pool est
+  // mesurée sur environ une minute, le token sur cinq. Une rafale récente
+  // gonfle la première et se dilue dans la seconde. On le dit plutôt que de
+  // masquer un chiffre qui passerait pour un bug.
+  if (share !== null) {
+    lines.push(
+      share <= 100
+        ? `soit ${share.toFixed(0)} % du flux du token`
+        : `la pool dépasse la moyenne 5 min du token : rafale en cours`,
+    );
+  }
+  return lines.join("\n");
+}
 
 /** Fenêtre pas encore remplie : la valeur s'affiche mais se lit avec réserve. */
 const lowConf = (r: PoolRow): boolean => !isRateReliable(r);
@@ -147,10 +178,13 @@ export function MarketTable({
               </Tentative>
             </td>
 
+            {/* Volume du TOKEN, pas de la pool. Sans <Tentative> : ce marqueur
+                décrit la fenêtre de dérivation des fees, qui n'a rien à voir
+                avec cette mesure — l'afficher ici mentirait sur sa fiabilité. */}
             <td className="px-2">
-              <Tentative low={lowConf(r)} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
-                <Num value={r.volumeRateUsdMin} format={fmtRate} className="text-fg-dim" />
-              </Tentative>
+              <span className="tnum block text-right text-fg-dim" title={tokenVolTitle(r)}>
+                {r.tokenVolumeUsdMin === null ? "—" : fmtRate(r.tokenVolumeUsdMin)}
+              </span>
             </td>
 
             <td className="px-2">

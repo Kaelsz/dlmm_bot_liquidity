@@ -5,6 +5,7 @@ import { config } from "@/config";
 import { MIGRATIONS, SCHEMA } from "@/db/schema.sql";
 import type { DerivedMetrics } from "@/data/metrics";
 import { isTrustedMint, type RugcheckReport } from "@/data/rugcheck";
+import type { TokenVolume } from "@/data/dexscreener";
 import type { PoolView } from "@/types/meteora";
 
 /** One point of the derived signal, recomputed from two consecutive samples. */
@@ -41,6 +42,12 @@ export interface LeaderboardRow {
   launchpad: string | null;
   /** Market cap du token risqué. Celui du quote n'a aucune valeur informative. */
   marketCap: number;
+  riskyMint: string;
+  /** Volume USD du token sur tous les DEX, fenêtre de 5 min. `null` si jamais mesuré. */
+  tokenVolumeM5: number | null;
+  tokenPairs: number | null;
+  tokenVolumeTruncated: number | null;
+  tokenVolumeAt: number | null;
   tokenXHolders: number;
   tokenXVerified: number;
   tokenXFreezeDisabled: number;
@@ -113,7 +120,9 @@ const LEADERBOARD_SELECT = `
     p.token_x_mint AS tokenXMint, p.token_y_mint AS tokenYMint, p.bin_step AS binStep,
     p.base_fee_pct AS baseFeePct, p.created_at AS createdAt,
     p.is_blacklisted AS isBlacklisted, p.launchpad,
-    p.risky_market_cap AS marketCap,
+    p.risky_market_cap AS marketCap, p.risky_mint AS riskyMint,
+    tv.volume_m5_usd AS tokenVolumeM5, tv.pairs AS tokenPairs,
+    tv.truncated AS tokenVolumeTruncated, tv.checked_at AS tokenVolumeAt,
     p.token_x_holders AS tokenXHolders,
     p.token_x_verified AS tokenXVerified,
     p.token_x_freeze_disabled AS tokenXFreezeDisabled,
@@ -130,6 +139,7 @@ const LEADERBOARD_SELECT = `
     m.dynamic_fee_pct AS dynamicFeePct, m.apy_pct AS apyPct
   FROM pool_metrics m
   JOIN pools p ON p.address = m.pool_address
+  LEFT JOIN token_volume tv ON tv.mint = p.risky_mint
 `;
 
 export class RadarDb {
@@ -177,7 +187,7 @@ export class RadarDb {
       token_y_verified, token_y_freeze_disabled, token_y_market_cap,
       bin_step, base_fee_pct, collect_fee_mode, created_at,
       first_seen_at, last_seen_at, is_blacklisted, launchpad, tags,
-      risky_market_cap
+      risky_market_cap, risky_mint
     ) VALUES (
       @address, @protocol, @name,
       @tokenXMint, @tokenXSymbol, @tokenXDecimals, @tokenXHolders,
@@ -186,7 +196,7 @@ export class RadarDb {
       @tokenYVerified, @tokenYFreezeDisabled, @tokenYMarketCap,
       @binStep, @baseFeePct, @collectFeeMode, @createdAt,
       @now, @now, @isBlacklisted, @launchpad, @tags,
-      @riskyMarketCap
+      @riskyMarketCap, @riskyMint
     )
     ON CONFLICT(address) DO UPDATE SET
       last_seen_at = @now,
@@ -197,6 +207,7 @@ export class RadarDb {
       token_y_holders = @tokenYHolders,
       token_y_market_cap = @tokenYMarketCap,
       risky_market_cap = @riskyMarketCap,
+      risky_mint = @riskyMint,
       is_blacklisted = @isBlacklisted
   `;
 
@@ -233,6 +244,10 @@ export class RadarDb {
         isTrustedMint(p.tokenX.address) && !isTrustedMint(p.tokenY.address)
           ? p.tokenY.market_cap
           : p.tokenX.market_cap,
+      riskyMint:
+        isTrustedMint(p.tokenX.address) && !isTrustedMint(p.tokenY.address)
+          ? p.tokenY.address
+          : p.tokenX.address,
     });
   }
 
@@ -396,7 +411,11 @@ export class RadarDb {
         tvl: "m.tvl DESC",
         volume: "m.volume_30m DESC",
         mcap: "p.risky_market_cap DESC",
-        volumeRate: "m.volume_rate_usd_min DESC",
+        // La colonne affiche désormais le volume du TOKEN, pas celui de la
+        // pool : trier sur le volume de pool renverrait un classement qui ne
+        // correspond pas à ce qui est à l'écran. Les tokens jamais mesurés
+        // (LEFT JOIN à NULL) tombent en fin de liste plutôt qu'en tête.
+        volumeRate: "COALESCE(tv.volume_m5_usd, -1) DESC",
         age: "p.created_at DESC",
         accel: "m.fee_accel DESC",
       }[f.sort ?? "heat"] ?? "m.heat_pct_hr DESC";
@@ -504,6 +523,57 @@ export class RadarDb {
             AND position_address NOT IN (${ph})`,
       )
       .run(ts, owner, ...seen).changes;
+  }
+
+  // ---- volume du token (tous DEX) ----------------------------------------
+
+  private static readonly UPSERT_TOKEN_VOLUME = `
+    INSERT INTO token_volume (mint, checked_at, volume_m5_usd, pairs, truncated)
+    VALUES (@mint, @checkedAt, @volumeM5Usd, @pairs, @truncated)
+    ON CONFLICT(mint) DO UPDATE SET
+      checked_at = @checkedAt, volume_m5_usd = @volumeM5Usd,
+      pairs = @pairs, truncated = @truncated
+  `;
+
+  upsertTokenVolume(v: TokenVolume): void {
+    this.stmt(RadarDb.UPSERT_TOKEN_VOLUME).run({
+      mint: v.mint,
+      checkedAt: v.checkedAt,
+      volumeM5Usd: v.volumeM5Usd,
+      pairs: v.pairs,
+      truncated: v.truncated ? 1 : 0,
+    });
+  }
+
+  /**
+   * Mints dont la mesure manque ou a dépassé le TTL.
+   *
+   * Même forme que `mintsNeedingRugcheck` : c'est la table elle-même qui sert
+   * de cache, et le plafond borne le nombre d'appels par cycle quelle que soit
+   * la taille du classement.
+   */
+  mintsNeedingVolume(candidateMints: string[], ttlMs: number, limit: number): string[] {
+    if (candidateMints.length === 0) return [];
+    const cutoff = Date.now() - ttlMs;
+    const fresh = new Set(
+      (
+        this.db
+          .prepare(
+            `SELECT mint FROM token_volume
+              WHERE checked_at >= ?
+                AND mint IN (${candidateMints.map(() => "?").join(",")})`,
+          )
+          .all(cutoff, ...candidateMints) as Array<{ mint: string }>
+      ).map((r) => r.mint),
+    );
+    return candidateMints.filter((m) => m && !fresh.has(m)).slice(0, limit);
+  }
+
+  /** Purge les mesures qu'aucune pool suivie ne réclame plus. */
+  pruneTokenVolume(olderThanMs: number): number {
+    return this.db
+      .prepare(`DELETE FROM token_volume WHERE checked_at < ?`)
+      .run(Date.now() - olderThanMs).changes;
   }
 
   // ---- rugcheck ----------------------------------------------------------

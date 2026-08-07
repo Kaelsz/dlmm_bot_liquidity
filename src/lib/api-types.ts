@@ -1,3 +1,4 @@
+import { volumePerMinute } from "@/data/dexscreener";
 import type { LeaderboardRow, RugcheckRow, SignalPoint } from "@/db";
 import { isTrustedMint, verdictOf, type SafetyVerdict } from "@/data/rugcheck";
 import type { OhlcvCandle, OhlcvTimeframe } from "@/types/meteora";
@@ -37,8 +38,24 @@ export interface PoolRow {
   freezeDisabled: boolean;
   ts: number;
   feeRateUsdMin: number;
-  /** Derived volume rate. Empty until two samples exist, unlike volume30m. */
+  /**
+   * Volume de la POOL par minute, dérivé comme les fees. Conservé pour
+   * l'infobulle : c'est lui qui explique les fees encaissées, alors que le
+   * volume du token décrit le marché.
+   */
   volumeRateUsdMin: number;
+  /**
+   * Volume du TOKEN par minute, tous DEX confondus.
+   *
+   * `null` tant qu'aucune mesure n'existe — à ne pas confondre avec zéro, qui
+   * signifierait un token sans échange. Moyenne sur 5 minutes et non taux
+   * instantané : DexScreener n'expose pas de compteur cumulé (cf.
+   * `src/data/dexscreener.ts`).
+   */
+  tokenVolumeUsdMin: number | null;
+  /** Nombre de paires sommées, et somme partielle si le plafond est atteint. */
+  tokenVolumePairs: number;
+  tokenVolumeTruncated: boolean;
   /** Portée de la fenêtre ayant produit les taux, et nombre de sauts captés.
    *  L'UI s'en sert pour marquer une estimation encore peu étayée. */
   rateSpanMs: number;
@@ -137,6 +154,12 @@ export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {
     ts: r.ts,
     feeRateUsdMin: r.feeRateUsdMin,
     volumeRateUsdMin: r.volumeRateUsdMin,
+    tokenVolumeUsdMin:
+      r.tokenVolumeM5 === null || r.tokenVolumeM5 === undefined
+        ? null
+        : volumePerMinute({ volumeM5Usd: r.tokenVolumeM5 }),
+    tokenVolumePairs: r.tokenPairs ?? 0,
+    tokenVolumeTruncated: r.tokenVolumeTruncated === 1,
     rateSpanMs: r.rateSpanMs,
     rateUpdates: r.rateUpdates,
     heatPctHr: r.heatPctHr,

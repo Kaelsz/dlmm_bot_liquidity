@@ -32,6 +32,7 @@ export const MIGRATIONS: string[] = [
   "ALTER TABLE wallet_positions ADD COLUMN lower_price REAL NOT NULL DEFAULT 0",
   "ALTER TABLE wallet_positions ADD COLUMN upper_price REAL NOT NULL DEFAULT 0",
   "ALTER TABLE wallet_positions ADD COLUMN current_price REAL NOT NULL DEFAULT 0",
+  "ALTER TABLE pools ADD COLUMN risky_mint TEXT NOT NULL DEFAULT ''",
 ];
 
 export const SCHEMA = `
@@ -103,6 +104,10 @@ CREATE TABLE IF NOT EXISTS pools (
   -- requête SQL ; ici la définition du côté risqué reste en TypeScript, à un
   -- seul endroit. Celui du quote n'a aucun sens : USDC vaut $7,7 Md partout.
   risky_market_cap          REAL NOT NULL DEFAULT 0,
+  -- Mint du côté risqué, dénormalisé pour la même raison que le market cap :
+  -- joindre le volume du token en SQL exigerait sinon de porter la liste des
+  -- devises de confiance dans la requête.
+  risky_mint                TEXT NOT NULL DEFAULT '',
   bin_step                  INTEGER,
   base_fee_pct              REAL NOT NULL DEFAULT 0,
   collect_fee_mode          INTEGER NOT NULL DEFAULT 0,
@@ -178,6 +183,25 @@ CREATE TABLE IF NOT EXISTS rugcheck (
   unavailable   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_rugcheck_checked ON rugcheck(checked_at DESC);
+
+-- Volume du token sur TOUS les DEX, pas seulement Meteora.
+--
+-- Table à part, indexée par mint et non par pool : un même token porte souvent
+-- plusieurs pools (25 pour CATE au moment de la mesure), et les faire partager
+-- une seule ligne évite autant de requêtes DexScreener que d'écritures
+-- redondantes. C'est aussi ce qui fait office de cache.
+CREATE TABLE IF NOT EXISTS token_volume (
+  mint           TEXT PRIMARY KEY,
+  checked_at     INTEGER NOT NULL,
+  -- Fenêtre glissante de 5 minutes : DexScreener n'expose aucun compteur
+  -- cumulé, donc pas de dérivation possible. Le taux par minute affiché est
+  -- cette valeur divisée par 5.
+  volume_m5_usd  REAL NOT NULL DEFAULT 0,
+  pairs          INTEGER NOT NULL DEFAULT 0,
+  -- Le plafond de 30 paires de l'API a été atteint : la somme est un minorant.
+  truncated      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_token_volume_checked ON token_volume(checked_at DESC);
 
 CREATE TABLE IF NOT EXISTS watchlist (
   pool_address TEXT PRIMARY KEY,

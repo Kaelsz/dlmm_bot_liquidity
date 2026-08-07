@@ -226,7 +226,16 @@ export function PoolDetail({ address, onClose }: { address: string; onClose: () 
                         : "—",
                       false,
                     ],
-                    ["Volume", fmtRate(p.volumeRateUsdMin) + "/min", p.volumeRateUsdMin > 0],
+                    // Les deux volumes côte à côte : celui du token dit si le
+                    // marché est vivant, celui de la pool explique les fees.
+                    [
+                      "Volume token",
+                      p.tokenVolumeUsdMin === null
+                        ? "—"
+                        : fmtRate(p.tokenVolumeUsdMin) + "/min",
+                      (p.tokenVolumeUsdMin ?? 0) > 0,
+                    ],
+                    ["Volume pool", fmtRate(p.volumeRateUsdMin) + "/min", p.volumeRateUsdMin > 0],
                     ["TVL", fmtUsd(p.tvl)],
                     ["Market cap", p.marketCap > 0 ? fmtUsd(p.marketCap) : "—"],
                     ["Prix", fmtPrice(p.price)],

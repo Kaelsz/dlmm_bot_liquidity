@@ -3,6 +3,7 @@ import { config, type Protocol } from "@/config";
 import { ALL_APIS, apiFor, dammV2Api, dlmmApi } from "@/data/client";
 import { deriveMetrics, pushFeePoint, type FeePoint } from "@/data/metrics";
 import { fetchRugcheck, isTrustedMint } from "@/data/rugcheck";
+import { fetchTokenVolume } from "@/data/dexscreener";
 import { getDb, type RadarDb } from "@/db";
 import { isChainConfigured } from "@/chain/positions";
 import { syncWallet } from "@/chain/sync";
@@ -20,8 +21,8 @@ interface HotEntry {
 export interface CollectorStatus {
   running: boolean;
   startedAt: number | null;
-  cycles: { discovery: number; newPools: number; hotSet: number; positions: number };
-  lastCycleAt: { discovery: number | null; newPools: number | null; hotSet: number | null; positions: number | null };
+  cycles: { discovery: number; newPools: number; hotSet: number; positions: number; tokenVolume: number };
+  lastCycleAt: { discovery: number | null; newPools: number | null; hotSet: number | null; positions: number | null; tokenVolume: number | null };
   hotSetSize: number;
   trackedPools: number;
   errors: number;
@@ -57,12 +58,13 @@ export class Collector {
   private running = false;
   private startedAt: number | null = null;
   private errors = 0;
-  private readonly cycles = { discovery: 0, newPools: 0, hotSet: 0, positions: 0 };
+  private readonly cycles = { discovery: 0, newPools: 0, hotSet: 0, positions: 0, tokenVolume: 0 };
   private readonly lastCycleAt: CollectorStatus["lastCycleAt"] = {
     discovery: null,
     newPools: null,
     positions: null,
     hotSet: null,
+    tokenVolume: null,
   };
 
   constructor(db: RadarDb = getDb()) {
@@ -99,10 +101,17 @@ export class Collector {
     this.every(config.collector.hotSetIntervalMs, () =>
       this.safe("hotSet", () => this.runHotSet()),
     );
+    // Volume du token tous DEX. Tier à part et non greffé sur la découverte :
+    // il tape une API tierce, à son propre rythme, et son échec ne doit pas
+    // compter comme un échec de collecte Meteora.
+    this.every(config.tokenVolume.intervalMs, () =>
+      this.safe("tokenVolume", () => this.runTokenVolume()),
+    );
     // Housekeeping, well off the hot path.
     this.every(10 * 60_000, async () => {
       const removed = this.db.pruneSamples(config.collector.sampleRetentionMs);
       if (removed > 0) logger.debug({ removed }, "pruned samples");
+      this.db.pruneTokenVolume(config.tokenVolume.retentionMs);
     });
   }
 
@@ -302,6 +311,36 @@ export class Collector {
     });
     write([...unique.values()]);
     return unique.size;
+  }
+
+  /**
+   * Rafraîchit le volume tous-DEX des tokens du classement affiché.
+   *
+   * On part du classement plutôt que de toutes les pools connues : la colonne
+   * n'est visible que là, et sonder les ~1 000 pools suivies ferait mille
+   * requêtes pour des lignes que personne ne regarde. Les mints sont dédupliqués
+   * — un même token porte souvent plusieurs pools, 25 pour CATE au moment de la
+   * mesure — puis filtrés par le TTL de la table, qui sert de cache.
+   */
+  private async runTokenVolume(): Promise<void> {
+    const rows = this.db.leaderboard({ limit: config.display.leaderboardSize });
+    const mints = [...new Set(rows.map((r) => r.riskyMint).filter(Boolean))];
+    const todo = this.db.mintsNeedingVolume(
+      mints,
+      config.tokenVolume.cacheTtlMs,
+      config.tokenVolume.maxLookupsPerCycle,
+    );
+    if (todo.length === 0) return;
+
+    const results = await Promise.all(todo.map((m) => fetchTokenVolume(m)));
+    const write = this.db.db.transaction((vs: typeof results) => {
+      for (const v of vs) if (v) this.db.upsertTokenVolume(v);
+    });
+    write(results);
+
+    const ok = results.filter(Boolean).length;
+    logger.debug({ asked: todo.length, resolved: ok }, "volume token cycle");
+    if (ok > 0) this.bus.emit("update");
   }
 
   private async runPositions(): Promise<void> {

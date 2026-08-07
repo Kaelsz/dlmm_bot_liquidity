@@ -139,6 +139,26 @@ export const config = {
     maxLookupsPerCycle: 12,
   },
 
+  tokenVolume: {
+    /**
+     * Volume du token sur tous les DEX (DexScreener).
+     *
+     * La réponse porte `cache-control: max-age=30` : rafraîchir plus vite ne
+     * rendrait rien de neuf. 90 s laisse une marge et divise la charge par
+     * trois par rapport à un cycle de découverte.
+     */
+    cacheTtlMs: 90_000,
+    /**
+     * Mints rafraîchis par cycle. Le classement affiché en compte une centaine ;
+     * à 40 par cycle de 20 s, tout le tableau est à jour en moins d'une minute
+     * sans jamais dépasser ~2 requêtes/seconde.
+     */
+    maxLookupsPerCycle: 40,
+    intervalMs: 20_000,
+    /** Au-delà, une mesure devenue inutile est effacée. */
+    retentionMs: 6 * 60 * 60_000,
+  },
+
   /**
    * Display defaults. These are NOT hard filters like the old bot's — the UI
    * exposes them and the collector stores everything it sees.
