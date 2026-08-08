@@ -31,6 +31,16 @@ export interface TokenVolume {
   mint: string;
   /** Volume USD de la fenêtre de 5 minutes, sommé sur les paires. */
   volumeM5Usd: number;
+  /**
+   * Les mêmes sommes sur des fenêtres plus larges.
+   *
+   * Elles ne servent pas au taux affiché mais au recoupement : GMGN et
+   * DexScreener présentent des TOTAUX par fenêtre, là où la colonne montre un
+   * taux par minute. Sans ces chiffres, un utilisateur qui compare « 17 M$ sur
+   * GMGN » à « 3 502 $/min » conclut à un bug — vérifié, c'est la même donnée.
+   */
+  volumeH1Usd: number;
+  volumeH24Usd: number;
   /** Nombre de paires prises en compte. */
   pairs: number;
   /**
@@ -66,14 +76,19 @@ export function sumTokenVolume(
   now = Date.now(),
 ): TokenVolume {
   const mine = pairs.filter((p) => p.baseToken?.address === mint);
-  let volumeM5Usd = 0;
-  for (const p of mine) {
-    const v = p.volume?.m5;
-    if (typeof v === "number" && Number.isFinite(v) && v > 0) volumeM5Usd += v;
-  }
+  const sum = (pick: (v: NonNullable<DexPair["volume"]>) => number | undefined): number => {
+    let total = 0;
+    for (const p of mine) {
+      const v = p.volume ? pick(p.volume) : undefined;
+      if (typeof v === "number" && Number.isFinite(v) && v > 0) total += v;
+    }
+    return total;
+  };
   return {
     mint,
-    volumeM5Usd,
+    volumeM5Usd: sum((v) => v.m5),
+    volumeH1Usd: sum((v) => v.h1),
+    volumeH24Usd: sum((v) => v.h24),
     pairs: mine.length,
     // Le plafond porte sur la réponse entière, pas sur les seules paires
     // retenues : c'est bien `pairs.length` qu'il faut comparer.
@@ -121,5 +136,14 @@ export async function fetchTokenVolume(mint: string): Promise<TokenVolume> {
  * le budget et à affamer les autres.
  */
 function unavailable(mint: string): TokenVolume {
-  return { mint, volumeM5Usd: 0, pairs: 0, truncated: false, unavailable: true, checkedAt: Date.now() };
+  return {
+    mint,
+    volumeM5Usd: 0,
+    volumeH1Usd: 0,
+    volumeH24Usd: 0,
+    pairs: 0,
+    truncated: false,
+    unavailable: true,
+    checkedAt: Date.now(),
+  };
 }

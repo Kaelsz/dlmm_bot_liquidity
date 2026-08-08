@@ -49,6 +49,8 @@ export interface LeaderboardRow {
   tokenVolumeTruncated: number | null;
   tokenVolumeAt: number | null;
   tokenVolumeUnavailable: number | null;
+  tokenVolumeH1: number | null;
+  tokenVolumeH24: number | null;
   tokenXHolders: number;
   tokenXVerified: number;
   tokenXFreezeDisabled: number;
@@ -125,6 +127,7 @@ const LEADERBOARD_SELECT = `
     tv.volume_m5_usd AS tokenVolumeM5, tv.pairs AS tokenPairs,
     tv.truncated AS tokenVolumeTruncated, tv.checked_at AS tokenVolumeAt,
     tv.unavailable AS tokenVolumeUnavailable,
+    tv.volume_h1_usd AS tokenVolumeH1, tv.volume_h24_usd AS tokenVolumeH24,
     p.token_x_holders AS tokenXHolders,
     p.token_x_verified AS tokenXVerified,
     p.token_x_freeze_disabled AS tokenXFreezeDisabled,
@@ -531,10 +534,17 @@ export class RadarDb {
   // ---- volume du token (tous DEX) ----------------------------------------
 
   private static readonly UPSERT_TOKEN_VOLUME = `
-    INSERT INTO token_volume (mint, checked_at, volume_m5_usd, pairs, truncated, unavailable)
-    VALUES (@mint, @checkedAt, @volumeM5Usd, @pairs, @truncated, @unavailable)
+    INSERT INTO token_volume (
+      mint, checked_at, volume_m5_usd, volume_h1_usd, volume_h24_usd,
+      pairs, truncated, unavailable
+    )
+    VALUES (
+      @mint, @checkedAt, @volumeM5Usd, @volumeH1Usd, @volumeH24Usd,
+      @pairs, @truncated, @unavailable
+    )
     ON CONFLICT(mint) DO UPDATE SET
       checked_at = @checkedAt, volume_m5_usd = @volumeM5Usd,
+      volume_h1_usd = @volumeH1Usd, volume_h24_usd = @volumeH24Usd,
       pairs = @pairs, truncated = @truncated, unavailable = @unavailable
   `;
 
@@ -543,6 +553,8 @@ export class RadarDb {
       mint: v.mint,
       checkedAt: v.checkedAt,
       volumeM5Usd: v.volumeM5Usd,
+      volumeH1Usd: v.volumeH1Usd,
+      volumeH24Usd: v.volumeH24Usd,
       pairs: v.pairs,
       truncated: v.truncated ? 1 : 0,
       unavailable: v.unavailable ? 1 : 0,

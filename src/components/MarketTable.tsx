@@ -60,8 +60,15 @@ const SORT_FOR_COL: Partial<Record<string, SortKey>> = {
  */
 function tokenVolTitle(r: PoolRow): string {
   if (r.tokenVolumeUsdMin === null) return "volume du token pas encore mesuré";
+  // Les totaux par fenêtre sont là pour le recoupement : GMGN et DexScreener
+  // affichent des totaux, cette colonne un taux par minute. Sans eux, « 17 M$
+  // sur GMGN » contre « 3 502 $/min » se lit comme une erreur — vérifié à
+  // 0,2 % près contre un agrégateur indépendant, c'est la même donnée.
   const lines = [
-    `volume du token, tous DEX — moyenne sur 5 min`,
+    `volume du token, tous DEX — taux dérivé de la fenêtre 5 min`,
+    `total 5 min  ${r.tokenVolume5m === null ? "—" : fmtUsd(r.tokenVolume5m)}`,
+    `total 1 h    ${r.tokenVolume1h === null ? "—" : fmtUsd(r.tokenVolume1h)}`,
+    `total 24 h   ${r.tokenVolume24h === null ? "—" : fmtUsd(r.tokenVolume24h)}   (mêmes chiffres que GMGN)`,
     `${r.tokenVolumePairs} paire${r.tokenVolumePairs > 1 ? "s" : ""}${r.tokenVolumeTruncated ? " (30 max atteint : somme partielle)" : ""}`,
     `cette pool seule : ${fmtRate(r.volumeRateUsdMin)} (dérivé à la minute)`,
   ];

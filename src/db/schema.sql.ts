@@ -34,6 +34,8 @@ export const MIGRATIONS: string[] = [
   "ALTER TABLE wallet_positions ADD COLUMN current_price REAL NOT NULL DEFAULT 0",
   "ALTER TABLE pools ADD COLUMN risky_mint TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE token_volume ADD COLUMN unavailable INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE token_volume ADD COLUMN volume_h1_usd REAL NOT NULL DEFAULT 0",
+  "ALTER TABLE token_volume ADD COLUMN volume_h24_usd REAL NOT NULL DEFAULT 0",
 ];
 
 export const SCHEMA = `
@@ -198,6 +200,10 @@ CREATE TABLE IF NOT EXISTS token_volume (
   -- cumulé, donc pas de dérivation possible. Le taux par minute affiché est
   -- cette valeur divisée par 5.
   volume_m5_usd  REAL NOT NULL DEFAULT 0,
+  -- Fenêtres larges, uniquement pour le recoupement avec GMGN et DexScreener,
+  -- qui affichent des totaux là où la colonne montre un taux par minute.
+  volume_h1_usd  REAL NOT NULL DEFAULT 0,
+  volume_h24_usd REAL NOT NULL DEFAULT 0,
   pairs          INTEGER NOT NULL DEFAULT 0,
   -- Le plafond de 30 paires de l'API a été atteint : la somme est un minorant.
   truncated      INTEGER NOT NULL DEFAULT 0,

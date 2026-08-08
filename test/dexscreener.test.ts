@@ -4,11 +4,17 @@ import { MAX_PAIRS, sumTokenVolume, volumePerMinute } from "../src/data/dexscree
 const MINT = "Ai66LHZG9MCzg1WKdawwqduVAXpNDUuV8M3uyq5ppump";
 const OTHER = "So11111111111111111111111111111111111111112";
 
-const pair = (base: string, m5: number | undefined, dexId = "meteora") => ({
+const pair = (
+  base: string,
+  m5: number | undefined,
+  dexId = "meteora",
+  h1?: number,
+  h24?: number,
+) => ({
   dexId,
   baseToken: { address: base },
   quoteToken: { address: OTHER },
-  volume: { m5 },
+  volume: { m5, h1, h24 },
 });
 
 describe("volume tous DEX d'un token", () => {
@@ -54,6 +60,25 @@ describe("volume tous DEX d'un token", () => {
     const v = sumTokenVolume([], MINT, 0);
     expect(v.volumeM5Usd).toBe(0);
     expect(v.truncated).toBe(false);
+  });
+
+  it("somme aussi les fenêtres larges, qui servent au recoupement", () => {
+    // GMGN et DexScreener affichent ces totaux ; la colonne montre un taux.
+    // Sans eux, l'utilisateur croit à une erreur d'un facteur mille.
+    const v = sumTokenVolume(
+      [pair(MINT, 100, "meteora", 1_200, 30_000), pair(MINT, 50, "pumpswap", 600, 10_000)],
+      MINT,
+      0,
+    );
+    expect(v.volumeM5Usd).toBe(150);
+    expect(v.volumeH1Usd).toBe(1_800);
+    expect(v.volumeH24Usd).toBe(40_000);
+  });
+
+  it("laisse les fenêtres larges à zéro quand l'API ne les donne pas", () => {
+    const v = sumTokenVolume([pair(MINT, 100)], MINT, 0);
+    expect(v.volumeH1Usd).toBe(0);
+    expect(v.volumeH24Usd).toBe(0);
   });
 
   it("marque une mesure réussie comme disponible", () => {

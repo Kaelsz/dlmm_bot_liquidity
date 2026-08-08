@@ -236,6 +236,13 @@ export function PoolDetail({ address, onClose }: { address: string; onClose: () 
                       (p.tokenVolumeUsdMin ?? 0) > 0,
                     ],
                     ["Volume pool", fmtRate(p.volumeRateUsdMin) + "/min", p.volumeRateUsdMin > 0],
+                    // Total 24 h du token : le chiffre que GMGN et DexScreener
+                    // affichent, donc celui qui permet de recouper. Ici plutôt
+                    // qu'en infobulle, seul endroit atteignable sur mobile.
+                    [
+                      "Volume token 24 h",
+                      p.tokenVolume24h === null ? "—" : fmtUsd(p.tokenVolume24h),
+                    ],
                     ["TVL", fmtUsd(p.tvl)],
                     ["Market cap", p.marketCap > 0 ? fmtUsd(p.marketCap) : "—"],
                     ["Prix", fmtPrice(p.price)],

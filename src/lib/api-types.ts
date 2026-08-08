@@ -56,6 +56,16 @@ export interface PoolRow {
   /** Nombre de paires sommées, et somme partielle si le plafond est atteint. */
   tokenVolumePairs: number;
   tokenVolumeTruncated: boolean;
+  /**
+   * Totaux par fenêtre, tels que GMGN et DexScreener les affichent.
+   *
+   * Ils ne servent qu'au recoupement : la colonne montre un taux par minute,
+   * ces sites un total. Sans eux, comparer « 17 M$ sur GMGN » à « 3 502 $/min »
+   * donne l'impression d'une erreur alors que c'est la même donnée.
+   */
+  tokenVolume5m: number | null;
+  tokenVolume1h: number | null;
+  tokenVolume24h: number | null;
   /** Portée de la fenêtre ayant produit les taux, et nombre de sauts captés.
    *  L'UI s'en sert pour marquer une estimation encore peu étayée. */
   rateSpanMs: number;
@@ -167,6 +177,9 @@ export function toPoolRow(r: LeaderboardRow, rug?: RugcheckRow): PoolRow {
         : volumePerMinute({ volumeM5Usd: r.tokenVolumeM5 }),
     tokenVolumePairs: r.tokenPairs ?? 0,
     tokenVolumeTruncated: r.tokenVolumeTruncated === 1,
+    tokenVolume5m: tokenWindow(r, r.tokenVolumeM5),
+    tokenVolume1h: tokenWindow(r, r.tokenVolumeH1),
+    tokenVolume24h: tokenWindow(r, r.tokenVolumeH24),
     rateSpanMs: r.rateSpanMs,
     rateUpdates: r.rateUpdates,
     heatPctHr: r.heatPctHr,
@@ -194,6 +207,12 @@ export function toPoolRows(rows: LeaderboardRow[], rug: Map<string, RugcheckRow>
 }
 
 /** Mints to look up for a batch — the deduplicated risky sides. */
+/** Même règle que le taux : une mesure indisponible ne vaut pas zéro. */
+function tokenWindow(r: LeaderboardRow, value: number | null): number | null {
+  if (r.tokenVolumeUnavailable === 1 || (r.tokenPairs ?? 0) === 0) return null;
+  return value ?? null;
+}
+
 export function riskyMintsOf(rows: LeaderboardRow[]): string[] {
   return [...new Set(rows.map(riskyMintOf))];
 }
