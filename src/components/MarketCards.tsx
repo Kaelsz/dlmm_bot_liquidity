@@ -1,13 +1,15 @@
 "use client";
 
 import { HeatCell } from "@/components/HeatCell";
-import { Num, Tentative } from "@/components/Num";
+import { Num, SignedNum, Tentative } from "@/components/Num";
 import { SafetyBadge } from "@/components/SafetyBadge";
 import { Sparkline } from "@/components/Sparkline";
 import { TokenLinks } from "@/components/TokenLinks";
 import { isRateReliable } from "@/data/metrics";
 import { fmtAge, fmtPct, fmtRate, fmtUsd, splitPairName } from "@/lib/format";
 import type { PoolRow } from "@/lib/api-types";
+import { fmtPrice } from "@/lib/format";
+import type { ColumnKey } from "@/lib/columns";
 
 /**
  * Rendu mobile de la vue Marché.
@@ -32,12 +34,21 @@ export function MarketCards({
   selected,
   onSelect,
   now,
+  visible,
 }: {
   rows: PoolRow[];
   selected: string | null;
   onSelect: (address: string) => void;
   now: number | null;
+  /**
+   * La même sélection que le tableau desktop. Le stockage étant local à
+   * l'appareil, le téléphone garde son propre jeu sans qu'aucun code n'ait à
+   * distinguer les deux — on ne regarde pas les mêmes chiffres au bureau et
+   * dans la rue.
+   */
+  visible: ReadonlySet<ColumnKey>;
 }) {
+  const on = (k: ColumnKey): boolean => visible.has(k);
   if (rows.length === 0) {
     return <p className="px-3 py-8 text-center text-fg-faint">Aucune pool ne correspond aux filtres.</p>;
   }
@@ -67,48 +78,80 @@ export function MarketCards({
               </span>
               <span className="truncate font-medium text-fg">{base}</span>
               <span className="shrink-0 text-fg-faint">/{quote}</span>
-              <span className="ml-auto shrink-0">
-                <Tentative low={low} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
-                  <HeatCell value={r.heatPctHr} />
-                </Tentative>
-              </span>
+              {on("heat") ? (
+                <span className="ml-auto shrink-0">
+                  <Tentative low={low} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
+                    <HeatCell value={r.heatPctHr} />
+                  </Tentative>
+                </span>
+              ) : null}
             </div>
 
-            <div className="flex items-center gap-3">
-              <Metric label="fees/min">
-                <Tentative low={low} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
-                  <Num value={r.feeRateUsdMin} format={fmtRate} className="font-semibold text-fg" />
-                </Tentative>
-              </Metric>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {on("rate") ? (
+                <Metric label="fees/min">
+                  <Tentative low={low} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
+                    <Num value={r.feeRateUsdMin} format={fmtRate} className="font-semibold text-fg" />
+                  </Tentative>
+                </Metric>
+              ) : null}
               {/* Volume du token, tous DEX. Pas de <Tentative> : ce marqueur
                   qualifie la fenêtre de dérivation des fees, pas cette mesure. */}
-              <Metric label="vol tok/min">
-                <span className="tnum text-fg-dim">
-                  {r.tokenVolumeUsdMin === null ? "—" : fmtRate(r.tokenVolumeUsdMin)}
+              {on("volumeRate") ? (
+                <Metric label="vol tok/min">
+                  <span className="tnum whitespace-nowrap text-fg-dim">
+                    {r.tokenVolumeUsdMin === null ? "—" : fmtRate(r.tokenVolumeUsdMin)}
+                  </span>
+                </Metric>
+              ) : null}
+              {on("accel") ? (
+                <Metric label="accél.">
+                  <SignedNum value={r.feeAccel} format={(v) => fmtRate(Math.abs(v ?? 0))} />
+                </Metric>
+              ) : null}
+              {on("spark") ? (
+                <span className="ml-auto shrink-0">
+                  <Sparkline points={r.sparkline} />
                 </span>
-              </Metric>
-              <span className="ml-auto shrink-0">
-                <Sparkline points={r.sparkline} />
-              </span>
+              ) : null}
             </div>
 
-            <div className="flex items-center gap-3 text-[11px] text-fg-faint">
-              <span>
-                TVL <span className="tnum text-fg-dim">{fmtUsd(r.tvl)}</span>
-              </span>
-              <span>
-                MCAP{" "}
-                <span className="tnum text-fg-dim">
-                  {r.marketCap > 0 ? fmtUsd(r.marketCap) : "—"}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-fg-faint">
+              {on("tvl") ? (
+                <span className="whitespace-nowrap">
+                  TVL <span className="tnum text-fg-dim">{fmtUsd(r.tvl)}</span>
                 </span>
-              </span>
-              <span>
-                <span className="tnum text-fg-dim">{fmtPct(r.baseFeePct, 2)}</span>
-              </span>
-              <span className="tnum">{fmtAge(r.createdAt, now ?? r.ts)}</span>
+              ) : null}
+              {on("mcap") ? (
+                <span className="whitespace-nowrap">
+                  MCAP{" "}
+                  <span className="tnum text-fg-dim">
+                    {r.marketCap > 0 ? fmtUsd(r.marketCap) : "—"}
+                  </span>
+                </span>
+              ) : null}
+              {on("volume") ? (
+                <span className="whitespace-nowrap">
+                  VOL 30M <span className="tnum text-fg-dim">{fmtUsd(r.volume30m)}</span>
+                </span>
+              ) : null}
+              {on("fees") ? (
+                <span className="whitespace-nowrap">
+                  FEES 30M <span className="tnum text-fg-dim">{fmtUsd(r.fees30m)}</span>
+                </span>
+              ) : null}
+              {on("fee") ? (
+                <span className="tnum whitespace-nowrap text-fg-dim">{fmtPct(r.baseFeePct, 2)}</span>
+              ) : null}
+              {on("price") ? (
+                <span className="tnum whitespace-nowrap text-fg-dim">{fmtPrice(r.price)}</span>
+              ) : null}
+              {on("age") ? (
+                <span className="tnum whitespace-nowrap">{fmtAge(r.createdAt, now ?? r.ts)}</span>
+              ) : null}
               <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                <SafetyBadge row={r} />
-                <TokenLinks mint={r.riskyMint} poolAddress={r.address} />
+                {on("safety") ? <SafetyBadge row={r} /> : null}
+                {on("links") ? <TokenLinks mint={r.riskyMint} poolAddress={r.address} /> : null}
               </span>
             </div>
           </li>

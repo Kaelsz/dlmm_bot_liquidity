@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HeatCell } from "@/components/HeatCell";
 import { Num, SignedNum , Tentative } from "@/components/Num";
 import { SafetyBadge } from "@/components/SafetyBadge";
@@ -9,24 +9,7 @@ import { TokenLinks } from "@/components/TokenLinks";
 import { fmtAge, fmtInt, fmtPct, fmtPrice, fmtRate, fmtUsd, splitPairName } from "@/lib/format";
 import { isRateReliable } from "@/data/metrics";
 import type { PoolRow } from "@/lib/api-types";
-
-const COLS = [
-  { key: "pool", label: "Pool", w: "min-w-[190px] w-[190px]", align: "left" },
-  { key: "heat", label: "Heat %/h", w: "w-[92px]", align: "right", sortable: true },
-  { key: "rate", label: "Fees/min", w: "w-[74px]", align: "right", sortable: true },
-  { key: "volumeRate", label: "Vol tok/min", w: "w-[84px]", align: "right", sortable: true },
-  { key: "spark", label: "Tendance", w: "w-[72px]", align: "left" },
-  { key: "accel", label: "Accél.", w: "w-[76px]", align: "right", sortable: true },
-  { key: "tvl", label: "TVL", w: "w-[74px]", align: "right", sortable: true },
-  { key: "mcap", label: "MCap", w: "w-[78px]", align: "right", sortable: true },
-  { key: "volume", label: "Vol 30m", w: "w-[74px]", align: "right", sortable: true },
-  { key: "fees", label: "Fees 30m", w: "w-[74px]", align: "right" },
-  { key: "fee", label: "Frais", w: "w-[74px]", align: "right" },
-  { key: "price", label: "Prix", w: "w-[84px]", align: "right" },
-  { key: "age", label: "Âge", w: "w-[56px]", align: "right", sortable: true },
-  { key: "safety", label: "Sécu", w: "w-[64px]", align: "left" },
-  { key: "links", label: "Liens", w: "w-[86px]", align: "left" },
-] as const;
+import { COLUMNS, tableMinWidth, type ColumnKey } from "@/lib/columns";
 
 export type SortKey =
   | "heat"
@@ -97,12 +80,14 @@ export function MarketTable({
   onSortChange,
   selected,
   onSelect,
+  visible,
 }: {
   rows: PoolRow[];
   sort: SortKey;
   onSortChange: (s: SortKey) => void;
   selected: string | null;
   onSelect: (address: string) => void;
+  visible: ReadonlySet<ColumnKey>;
 }) {
   // Track which addresses are new since the last render so they can be
   // highlighted once on arrival.
@@ -136,10 +121,126 @@ export function MarketTable({
     return () => clearInterval(t);
   }, []);
 
+  // Une cellule par clé de colonne, plutôt qu'une suite de <td> figée.
+  //
+  // C'est ce qui rend la sélection possible sans risque : l'en-tête et le corps
+  // sont engendrés par la MÊME liste filtrée, donc ils ne peuvent pas se
+  // désynchroniser. Avec quinze <td> écrits à la main, masquer une colonne
+  // décalait silencieusement toutes les suivantes.
+  const cellFor = useCallback(
+    (key: ColumnKey, r: PoolRow, nowMs: number | null) => {
+      switch (key) {
+        case "pool": {
+          const { base, quote } = splitPairName(r.name);
+          return (
+            <div className="flex items-center gap-1.5 overflow-hidden">
+              <span
+                className={`shrink-0 rounded-[2px] px-1 text-[9px] font-semibold uppercase leading-[14px] ${
+                  r.protocol === "dlmm" ? "bg-[#1a2c3d] text-[#63b3ed]" : "bg-[#2d2439] text-[#b794f4]"
+                }`}
+                title={r.protocol === "dlmm" ? "DLMM" : "DAMM v2"}
+              >
+                {r.protocol === "dlmm" ? "DL" : "D2"}
+              </span>
+              <span className="truncate font-medium text-fg" title={r.name}>
+                {base}
+              </span>
+              <span className="shrink-0 text-fg-faint">/{quote}</span>
+              {r.binStep ? (
+                <span className="tnum shrink-0 text-[10px] text-fg-faint" title="bin step">
+                  {r.binStep}
+                </span>
+              ) : null}
+            </div>
+          );
+        }
+        case "heat":
+          return (
+            <Tentative low={lowConf(r)} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
+              <HeatCell value={r.heatPctHr} />
+            </Tentative>
+          );
+        case "rate":
+          return (
+            <Tentative low={lowConf(r)} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
+              <Num value={r.feeRateUsdMin} format={fmtRate} className="font-semibold text-fg" />
+            </Tentative>
+          );
+        case "volumeRate":
+          // Volume du TOKEN, pas de la pool. Sans <Tentative> : ce marqueur
+          // décrit la fenêtre de dérivation des fees, qui n'a rien à voir avec
+          // cette mesure — l'afficher ici mentirait sur sa fiabilité.
+          return (
+            <span className="tnum block whitespace-nowrap text-right text-fg-dim" title={tokenVolTitle(r)}>
+              {r.tokenVolumeUsdMin === null ? "—" : fmtRate(r.tokenVolumeUsdMin)}
+            </span>
+          );
+        case "spark":
+          return <Sparkline points={r.sparkline} />;
+        case "accel":
+          return <SignedNum value={r.feeAccel} format={(v) => fmtRate(Math.abs(v ?? 0))} />;
+        case "tvl":
+          return <Num value={r.tvl} format={fmtUsd} className="text-fg-dim" />;
+        case "mcap":
+          // 0 = market cap inconnu, pas minuscule : un tiret plutôt que « $0 »,
+          // qui se lirait comme une mesure.
+          return (
+            <span className="tnum block whitespace-nowrap text-right text-fg-dim">
+              {r.marketCap > 0 ? fmtUsd(r.marketCap) : "—"}
+            </span>
+          );
+        case "volume":
+          return <Num value={r.volume30m} format={fmtUsd} className="text-fg-dim" />;
+        case "fees":
+          return <Num value={r.fees30m} format={fmtUsd} className="text-fg-dim" />;
+        case "fee":
+          return (
+            <span
+              className="tnum block whitespace-nowrap text-right text-fg-dim"
+              title={
+                r.dynamicFeePct !== null
+                  ? `frais de base ${r.baseFeePct} %, dynamique ${r.dynamicFeePct} %`
+                  : `frais de base ${r.baseFeePct} %`
+              }
+            >
+              {r.dynamicFeePct !== null && r.dynamicFeePct !== r.baseFeePct ? (
+                <span className="text-warn">{fmtPct(r.dynamicFeePct, 2)}</span>
+              ) : (
+                fmtPct(r.baseFeePct, 2)
+              )}
+            </span>
+          );
+        case "price":
+          return <Num value={r.price} format={fmtPrice} className="text-fg-dim" />;
+        case "age":
+          return (
+            <span
+              className="tnum block whitespace-nowrap text-right text-fg-dim"
+              title={r.createdAt ? new Date(r.createdAt).toLocaleString("fr-FR") : ""}
+            >
+              {fmtAge(r.createdAt, nowMs ?? r.ts)}
+            </span>
+          );
+        case "safety":
+          return (
+            <div className="flex items-center gap-1">
+              <SafetyBadge row={r} />
+              <SafetyIcons row={r} />
+            </div>
+          );
+        case "links":
+          return <TokenLinks mint={r.riskyMint} poolAddress={r.address} />;
+      }
+    },
+    [],
+  );
+
+  const cols = useMemo(() => COLUMNS.filter((c) => visible.has(c.key)), [visible]);
+  const minWidth = useMemo(() => tableMinWidth(visible), [visible]);
+
   const body = useMemo(
     () =>
       rows.map((r) => {
-        const { base, quote } = splitPairName(r.name);
         const isNew = entering.has(r.address);
         return (
           <tr
@@ -149,141 +250,43 @@ export function MarketTable({
               isNew ? "row-enter" : ""
             } ${selected === r.address ? "row-selected" : ""}`}
           >
-            <td className="px-2">
-              <div className="flex items-center gap-1.5 overflow-hidden">
-                <span
-                  className={`shrink-0 rounded-[2px] px-1 text-[9px] font-semibold uppercase leading-[14px] ${
-                    r.protocol === "dlmm"
-                      ? "bg-[#1a2c3d] text-[#63b3ed]"
-                      : "bg-[#2d2439] text-[#b794f4]"
-                  }`}
-                  title={r.protocol === "dlmm" ? "DLMM" : "DAMM v2"}
-                >
-                  {r.protocol === "dlmm" ? "DL" : "D2"}
-                </span>
-                <span className="truncate font-medium text-fg" title={r.name}>
-                  {base}
-                </span>
-                <span className="shrink-0 text-fg-faint">/{quote}</span>
-                {r.binStep ? (
-                  <span className="tnum shrink-0 text-[10px] text-fg-faint" title="bin step">
-                    {r.binStep}
-                  </span>
-                ) : null}
-              </div>
-            </td>
-
-            <td className="px-1">
-              <Tentative low={lowConf(r)} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
-                <HeatCell value={r.heatPctHr} />
-              </Tentative>
-            </td>
-
-            <td className="px-2">
-              <Tentative low={lowConf(r)} spanMs={r.rateSpanMs} updates={r.rateUpdates}>
-                <Num value={r.feeRateUsdMin} format={fmtRate} className="font-semibold text-fg" />
-              </Tentative>
-            </td>
-
-            {/* Volume du TOKEN, pas de la pool. Sans <Tentative> : ce marqueur
-                décrit la fenêtre de dérivation des fees, qui n'a rien à voir
-                avec cette mesure — l'afficher ici mentirait sur sa fiabilité. */}
-            <td className="px-2">
-              <span className="tnum block text-right text-fg-dim" title={tokenVolTitle(r)}>
-                {r.tokenVolumeUsdMin === null ? "—" : fmtRate(r.tokenVolumeUsdMin)}
-              </span>
-            </td>
-
-            <td className="px-2">
-              <Sparkline points={r.sparkline} />
-            </td>
-
-            <td className="px-2">
-              <SignedNum value={r.feeAccel} format={(v) => fmtRate(Math.abs(v ?? 0))} />
-            </td>
-
-            <td className="px-2">
-              <Num value={r.tvl} format={fmtUsd} className="text-fg-dim" />
-            </td>
-
-            <td className="px-2">
-              {/* 0 = market cap inconnu, pas minuscule : afficher un tiret
-                  plutôt que « $0 », qui se lirait comme une mesure. */}
-              <span className="tnum block text-right text-fg-dim">
-                {r.marketCap > 0 ? fmtUsd(r.marketCap) : "—"}
-              </span>
-            </td>
-
-            <td className="px-2">
-              <Num value={r.volume30m} format={fmtUsd} className="text-fg-dim" />
-            </td>
-
-            <td className="px-2">
-              <Num value={r.fees30m} format={fmtUsd} className="text-fg-dim" />
-            </td>
-
-            <td className="px-2">
-              <span
-                className="tnum block text-right text-fg-dim"
-                title={
-                  r.dynamicFeePct !== null
-                    ? `frais de base ${r.baseFeePct} %, dynamique ${r.dynamicFeePct} %`
-                    : `frais de base ${r.baseFeePct} %`
-                }
-              >
-                {r.dynamicFeePct !== null && r.dynamicFeePct !== r.baseFeePct ? (
-                  <span className="text-warn">{fmtPct(r.dynamicFeePct, 2)}</span>
-                ) : (
-                  fmtPct(r.baseFeePct, 2)
-                )}
-              </span>
-            </td>
-
-            <td className="px-2">
-              <Num value={r.price} format={fmtPrice} className="text-fg-dim" />
-            </td>
-
-            <td className="px-2">
-              <span
-                className="tnum block text-right text-fg-dim"
-                title={r.createdAt ? new Date(r.createdAt).toLocaleString("fr-FR") : ""}
-              >
-                {fmtAge(r.createdAt, now ?? r.ts)}
-              </span>
-            </td>
-
-            <td className="px-2">
-              <div className="flex items-center gap-1">
-                <SafetyBadge row={r} />
-                <SafetyIcons row={r} />
-              </div>
-            </td>
-
-            <td className="px-2">
-              <TokenLinks mint={r.riskyMint} poolAddress={r.address} />
-            </td>
+            {cols.map((c) => (
+              <td key={c.key} className={c.key === "heat" ? "px-1" : "px-2"}>
+                {cellFor(c.key, r, now)}
+              </td>
+            ))}
           </tr>
         );
       }),
-    [rows, entering, now, selected, onSelect],
+    [rows, entering, now, selected, onSelect, cols, cellFor],
   );
 
   return (
     <div className="overflow-x-auto">
       {/* hidden md:table : le tableau disparaît sous 768 px au profit de
-          <MarketCards>. Bascule en CSS et non en JavaScript, pour que le rendu
-          desktop reste exactement celui d'avant — aucun état React, aucun
-          risque de décalage d'hydratation. */}
-      <table className="hidden w-full border-collapse text-[12px] md:table">
+          <MarketCards>. Bascule en CSS et non en JavaScript, pour qu'aucun état
+          React ne s'interpose entre le rendu serveur et le rendu client.
+
+          minWidth = somme des colonnes VISIBLES. Sans elle, `w-full` laissait
+          le navigateur comprimer les colonnes sous leur largeur nominale : en
+          dessous de ~1 150 px le texte passait sur deux lignes et débordait de
+          la cellule Heat, dont la hauteur est fixe. Le conteneur défile
+          désormais au lieu d'écraser, et masquer des colonnes recule d'autant
+          le seuil de défilement. */}
+      <table
+        className="hidden w-full border-collapse text-[12px] md:table"
+        style={{ minWidth }}
+      >
         <thead className="sticky top-0 z-10 bg-surface">
           <tr className="border-b border-line-strong">
-            {COLS.map((c) => {
+            {cols.map((c) => {
               const sortKey = SORT_FOR_COL[c.key];
               const active = sortKey && sortKey === sort;
               return (
                 <th
                   key={c.key}
-                  className={`${c.w} px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  style={{ width: c.width }}
+                  className={`whitespace-nowrap px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide ${
                     c.align === "right" ? "text-right" : "text-left"
                   } ${sortKey ? "cursor-pointer select-none hover:text-fg" : ""} ${
                     active ? "text-accent" : "text-fg-faint"

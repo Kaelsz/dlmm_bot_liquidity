@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AmountFilter } from "@/components/AmountFilter";
+import { ColumnPicker, useColumns } from "@/components/ColumnPicker";
 import { MarketCards } from "@/components/MarketCards";
 import { MarketTable, type SortKey } from "@/components/MarketTable";
 import { Nav } from "@/components/Nav";
@@ -46,6 +47,8 @@ export function MarketView({ initial }: { initial: PoolsResponse }) {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [selected, setSelected] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Sélection des colonnes, retenue par appareil (cf. ColumnPicker).
+  const { visible, toggle, reset } = useColumns();
   const closeDetail = useCallback(() => setSelected(null), []);
 
   const buildQuery = useCallback(() => {
@@ -161,6 +164,9 @@ export function MarketView({ initial }: { initial: PoolsResponse }) {
           </span>
         ) : null}
         {error ? <span className="ml-auto text-down">⚠ {error}</span> : null}
+        <span className={error ? "" : "ml-auto"}>
+          {visible ? <ColumnPicker visible={visible} onToggle={toggle} onReset={reset} /> : null}
+        </span>
       </div>
 
       {/* Mobile : les filtres tiendraient sur trois lignes et mangeraient la
@@ -174,6 +180,10 @@ export function MarketView({ initial }: { initial: PoolsResponse }) {
           >
             Filtres{activeCount > 0 ? ` (${activeCount})` : ""} {filtersOpen ? "▲" : "▼"}
           </button>
+          {/* Le sélecteur vaut autant sur téléphone : c'est là que la place
+              manque le plus, et le stockage local donne à l'appareil sa propre
+              vue sans configuration partagée. */}
+          {visible ? <ColumnPicker visible={visible} onToggle={toggle} onReset={reset} /> : null}
           {inverted ? <span className="text-warn">⚠ intervalle inversé</span> : null}
           {error ? <span className="ml-auto text-down">⚠ {error}</span> : null}
         </div>
@@ -202,14 +212,28 @@ export function MarketView({ initial }: { initial: PoolsResponse }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <MarketTable
-          rows={rows}
-          sort={sort}
-          onSortChange={setSort}
-          selected={selected}
-          onSelect={setSelected}
-        />
-        <MarketCards rows={rows} selected={selected} onSelect={setSelected} now={now} />
+        {/* `visible` est null au premier rendu, le temps que localStorage soit
+            lisible côté client. Rendre le jeu par défaut en attendant ferait
+            clignoter les colonnes masquées à chaque chargement. */}
+        {visible ? (
+          <>
+            <MarketTable
+              rows={rows}
+              sort={sort}
+              onSortChange={setSort}
+              selected={selected}
+              onSelect={setSelected}
+              visible={visible}
+            />
+            <MarketCards
+              rows={rows}
+              selected={selected}
+              onSelect={setSelected}
+              now={now}
+              visible={visible}
+            />
+          </>
+        ) : null}
       </div>
 
       {selected ? <PoolDetail address={selected} onClose={closeDetail} /> : null}
